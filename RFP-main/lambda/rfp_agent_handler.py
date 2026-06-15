@@ -48,17 +48,17 @@ def tool_supplier_lookup(rfp_requirement: str) -> dict:
         keywords = rfp_requirement.lower().split()
         
         for supplier in suppliers:
-            supplier_name = supplier.get('SupplierName', '').lower()
-            capabilities = supplier.get('Capabilities', '').lower()
+            supplier_name = supplier.get('name', '').lower()
+            capabilities = supplier.get('category', '').lower()
             score = sum(1 for kw in keywords if kw in supplier_name or kw in capabilities)
             
             if score > 0 or len(relevant_suppliers) < 4:  # Always include at least 4
                 relevant_suppliers.append({
-                    'SupplierID': supplier.get('SupplierID'),
-                    'SupplierName': supplier.get('SupplierName'),
-                    'Email': supplier.get('Email'),
-                    'Capabilities': supplier.get('Capabilities'),
-                    'PastPerformance': supplier.get('PastPerformance', 'Good'),
+                    'SupplierID': supplier.get('supplier_id'),
+                    'SupplierName': supplier.get('name'),
+                    'Email': supplier.get('contact_email'),
+                    'Capabilities': supplier.get('category'),
+                    'PastPerformance': 'Good',
                     'RelevanceScore': score
                 })
         
