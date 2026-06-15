@@ -48,6 +48,7 @@ def tool_supplier_lookup(rfp_requirement: str) -> dict:
         keywords = rfp_requirement.lower().split()
         
         for supplier in suppliers:
+            # Map DynamoDB actual field names to logical names
             supplier_name = supplier.get('name', '').lower()
             capabilities = supplier.get('category', '').lower()
             score = sum(1 for kw in keywords if kw in supplier_name or kw in capabilities)
@@ -184,7 +185,7 @@ def tool_proposal_fetch(rfp_id: str, suppliers: list) -> dict:
             try:
                 response = PROPOSALS_TABLE.get_item(
                     Key={
-                        'ProposalID': f"{rfp_id}-{supplier['SupplierID']}"
+                        'proposal_id': f"{rfp_id}-{supplier['SupplierID']}"
                     }
                 )
                 proposal = response.get('Item')
@@ -195,15 +196,15 @@ def tool_proposal_fetch(rfp_id: str, suppliers: list) -> dict:
             if not proposal:
                 proposal_id = f"{rfp_id}-{supplier['SupplierID']}"
                 proposal = {
-                    'ProposalID': proposal_id,
-                    'RFP_ID': rfp_id,
-                    'SupplierID': supplier['SupplierID'],
-                    'SupplierName': supplier['SupplierName'],
-                    'Price': round(1000 + (hash(supplier['SupplierID']) % 5000), 2),
-                    'DeliveryTime': 30 + (hash(supplier['SupplierID']) % 30),
-                    'Quality': round(75 + (hash(supplier['SupplierID']) % 25) / 1.0, 1),
-                    'ComplianceCertifications': ['ISO 9001', 'RoHS', 'REACH'],
-                    'SubmittedAt': datetime.now().isoformat()
+                    'proposal_id': proposal_id,
+                    'rfp_id': rfp_id,
+                    'supplier_id': supplier['SupplierID'],
+                    'supplier_name': supplier['SupplierName'],
+                    'price': round(1000 + (hash(supplier['SupplierID']) % 5000), 2),
+                    'delivery_time_days': 30 + (hash(supplier['SupplierID']) % 30),
+                    'quality_score': round(75 + (hash(supplier['SupplierID']) % 25) / 1.0, 1),
+                    'certifications': ['ISO 9001', 'RoHS', 'REACH'],
+                    'submitted_at': datetime.now().isoformat()
                 }
                 
                 # Save mock proposal to DynamoDB
@@ -241,8 +242,8 @@ def tool_scoring(rfp_id: str, proposals: list) -> dict:
         
         # Normalize proposal data
         if proposals:
-            max_price = max(p.get('Price', 1000) for p in proposals) or 1000
-            min_delivery = min(p.get('DeliveryTime', 30) for p in proposals) or 30
+            max_price = max(p.get('price', 1000) for p in proposals) or 1000
+            min_delivery = min(p.get('delivery_time_days', 30) for p in proposals) or 30
         else:
             max_price = 1000
             min_delivery = 30
@@ -250,10 +251,10 @@ def tool_scoring(rfp_id: str, proposals: list) -> dict:
         scored_proposals = []
         for proposal in proposals:
             # Calculate individual scores (0-100)
-            price_score = (1 - (proposal.get('Price', 1000) / max_price)) * 100 if max_price > 0 else 50
-            quality_score = proposal.get('Quality', 80)
-            delivery_score = (1 - (proposal.get('DeliveryTime', 30) / 60)) * 100  # Normalized to 60 days max
-            compliance_score = 90 if proposal.get('ComplianceCertifications') else 60
+            price_score = (1 - (proposal.get('price', 1000) / max_price)) * 100 if max_price > 0 else 50
+            quality_score = proposal.get('quality_score', 80)
+            delivery_score = (1 - (proposal.get('delivery_time_days', 30) / 60)) * 100  # Normalized to 60 days max
+            compliance_score = 90 if proposal.get('certifications') else 60
             
             # Calculate weighted total score
             total_score = (
@@ -264,12 +265,12 @@ def tool_scoring(rfp_id: str, proposals: list) -> dict:
             )
             
             scored_data = {
-                'ProposalID': proposal.get('ProposalID'),
-                'SupplierName': proposal.get('SupplierName'),
-                'Price': proposal.get('Price'),
-                'Quality': proposal.get('Quality'),
-                'DeliveryTime': proposal.get('DeliveryTime'),
-                'Compliance': 'Yes' if proposal.get('ComplianceCertifications') else 'No',
+                'ProposalID': proposal.get('proposal_id'),
+                'SupplierName': proposal.get('supplier_name'),
+                'Price': proposal.get('price'),
+                'Quality': proposal.get('quality_score'),
+                'DeliveryTime': proposal.get('delivery_time_days'),
+                'Compliance': 'Yes' if proposal.get('certifications') else 'No',
                 'ScoreBreakdown': {
                     'Price': round(price_score, 1),
                     'Quality': round(quality_score, 1),
@@ -282,12 +283,12 @@ def tool_scoring(rfp_id: str, proposals: list) -> dict:
             # Save score to DynamoDB
             SCORES_TABLE.put_item(
                 Item={
-                    'ScoreID': f"{rfp_id}-{proposal.get('SupplierID', 'unknown')}",
-                    'RFP_ID': rfp_id,
-                    'ProposalID': proposal.get('ProposalID'),
-                    'TotalScore': scored_data['TotalScore'],
-                    'ScoreBreakdown': json.dumps(scored_data['ScoreBreakdown']),
-                    'ScoredAt': datetime.now().isoformat()
+                    'score_id': f"{rfp_id}-{proposal.get('supplier_id', 'unknown')}",
+                    'rfp_id': rfp_id,
+                    'proposal_id': proposal.get('proposal_id'),
+                    'total_score': scored_data['TotalScore'],
+                    'score_breakdown': json.dumps(scored_data['ScoreBreakdown']),
+                    'scored_at': datetime.now().isoformat()
                 }
             )
             
