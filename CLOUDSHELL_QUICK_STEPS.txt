@@ -1,0 +1,170 @@
+================================================================================
+         CLOUDSHELL DOCKER BUILD - QUICK REFERENCE (Copy-Paste)
+================================================================================
+
+✅ ZIP FILE READY: supplier-rfp-agent.zip
+✅ S3, DynamoDB, IAM DONE
+⏳ DOCKER IMAGE & LAMBDA PENDING
+
+================================================================================
+SECTION 1: CLOUDSHELL SETUP (2 minutes)
+================================================================================
+
+1. Open AWS Console: https://console.aws.amazon.com/
+2. Make sure Region = us-east-1 (top right)
+3. Click Terminal icon (🖥️) → CloudShell
+4. Wait for shell to load
+
+5. Upload file: Click "Actions" → "Upload file"
+   → Select: supplier-rfp-agent.zip
+
+================================================================================
+SECTION 2: BUILD & PUSH DOCKER IMAGE (15-20 minutes)
+================================================================================
+
+Copy and paste each command one at a time:
+
+→ COMMAND 1: Extract ZIP
+unzip supplier-rfp-agent.zip
+
+→ COMMAND 2: Navigate to project
+cd supplier-rfp-agent
+
+→ COMMAND 3: Build Docker image (wait 3-5 minutes)
+docker build -t supplier-rfp-agent:latest -f lambda/Dockerfile .
+
+→ COMMAND 4: Verify build
+docker images | grep supplier-rfp-agent
+
+→ COMMAND 5: Login to ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 689050397154.dkr.ecr.us-east-1.amazonaws.com
+
+→ COMMAND 6: Tag image
+docker tag supplier-rfp-agent:latest 689050397154.dkr.ecr.us-east-1.amazonaws.com/supplier-rfp-agent:latest
+
+→ COMMAND 7: Push to ECR (wait 5-10 minutes)
+docker push 689050397154.dkr.ecr.us-east-1.amazonaws.com/supplier-rfp-agent:latest
+
+→ COMMAND 8: Verify in ECR
+aws ecr describe-images --repository-name supplier-rfp-agent --region us-east-1
+
+================================================================================
+SECTION 3: CREATE LAMBDA FUNCTION (1 minute)
+================================================================================
+
+→ COMMAND 9: Create Lambda
+aws lambda create-function \
+  --function-name rfp-agent-handler \
+  --role arn:aws:iam::689050397154:role/rfp-agent-lambda-role \
+  --code ImageUri=689050397154.dkr.ecr.us-east-1.amazonaws.com/supplier-rfp-agent:latest \
+  --package-type Image \
+  --handler lambda.rfp_agent_handler.handler \
+  --timeout 300 \
+  --memory-size 512 \
+  --environment Variables="{REGION=us-east-1,BEDROCK_MODEL_ID=amazon.nova-pro-v1:0}" \
+  --region us-east-1
+
+→ COMMAND 10: Verify Lambda
+aws lambda get-function --function-name rfp-agent-handler --region us-east-1
+
+================================================================================
+SECTION 4: WHAT TO EXPECT
+================================================================================
+
+COMMAND 3 (Build):
+✅ "Successfully built <hash>"
+✅ "Successfully tagged supplier-rfp-agent:latest"
+
+COMMAND 7 (Push):
+✅ Pushes multiple layers
+✅ "latest: digest: sha256:abc123..."
+
+COMMAND 8 (Verify ECR):
+✅ Shows: "imageTags": ["latest"]
+✅ Shows: "imageSizeInBytes": 500000000 (approx)
+
+COMMAND 9 (Create Lambda):
+✅ Returns: "FunctionArn": "arn:aws:lambda:us-east-1:689050397154:function:rfp-agent-handler"
+✅ "State": "Active"
+
+================================================================================
+SECTION 5: NEXT STEPS AFTER LAMBDA CREATION
+================================================================================
+
+After Lambda is created:
+1. Create API Gateway (optional for testing)
+2. Set up AgentCore (if using Bedrock agents)
+3. Run integration tests
+
+See: AWS_DEPLOYMENT_GUIDE.md PHASE 7 for API Gateway setup
+
+================================================================================
+SECTION 6: IF SOMETHING GOES WRONG
+================================================================================
+
+❌ "unzip: command not found"
+→ Try: apt-get update && apt-get install -y unzip
+
+❌ "docker: command not found"
+→ CloudShell has docker. Refresh session if needed.
+
+❌ "Unable to locate Dockerfile"
+→ Check: pwd (should be supplier-rfp-agent)
+→ Check: ls lambda/Dockerfile (should exist)
+
+❌ "Access Denied" on ECR login
+→ Check AWS credentials: aws sts get-caller-identity
+
+❌ "Docker push timeout"
+→ Try pushing again - sometimes network is slow
+
+❌ "Lambda creation failed - role not found"
+→ Verify role exists: aws iam get-role --role-name rfp-agent-lambda-role
+
+================================================================================
+ESTIMATED TIMELINE
+================================================================================
+
+CloudShell setup ........... 2 minutes
+Extract ZIP ............... 1 minute
+Build image ............... 3-5 minutes
+ECR login & tag ........... 1 minute
+Push to ECR ............... 5-10 minutes
+Create Lambda ............. 1 minute
+Verify .................... 1 minute
+                         ___________
+TOTAL ..................... 15-25 minutes ✅
+
+================================================================================
+FINAL CHECK: ALL COMPONENTS
+================================================================================
+
+✅ S3 Bucket: rfp-documents-quadrasystems
+✅ DynamoDB: 4 tables (suppliers, requests, proposals, scores)
+✅ IAM Role: rfp-agent-lambda-role (with permissions)
+✅ ECR Repository: supplier-rfp-agent
+✅ Docker Image: In ECR with tag 'latest'
+✅ Lambda Function: rfp-agent-handler (active)
+
+READY FOR: API Gateway + AgentCore setup
+
+================================================================================
+NEXT DOCUMENT TO READ
+================================================================================
+
+After Lambda is created, see:
+→ AWS_DEPLOYMENT_GUIDE.md PHASE 7: Create API Gateway
+→ AGENTCORE_SETUP_GUIDE.md: Set up AgentCore
+
+================================================================================
+SAVE THIS COMMAND FOR LATER USE
+================================================================================
+
+If you need to update Lambda with new image:
+
+aws lambda update-function-code \
+  --function-name rfp-agent-handler \
+  --image-uri 689050397154.dkr.ecr.us-east-1.amazonaws.com/supplier-rfp-agent:latest \
+  --region us-east-1
+
+================================================================================
