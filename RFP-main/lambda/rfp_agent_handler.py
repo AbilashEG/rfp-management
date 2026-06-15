@@ -444,7 +444,15 @@ def handler(event, context):
                 "tool_1_supplier_lookup": {
                     "status": supplier_result.get('status'),
                     "supplier_count": supplier_result.get('supplier_count'),
-                    "suppliers": suppliers if suppliers else []
+                    "suppliers": [
+                        {
+                            "supplier_id": s.get('SupplierID'),
+                            "name": s.get('SupplierName'),
+                            "capabilities": s.get('Capabilities'),
+                            "email": s.get('Email'),
+                            "past_performance": s.get('PastPerformance')
+                        } for s in suppliers
+                    ]
                 },
                 "tool_2_rfp_generation": {
                     "status": rfp_result.get('status'),
