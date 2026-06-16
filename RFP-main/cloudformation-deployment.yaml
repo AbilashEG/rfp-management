@@ -1,0 +1,599 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Strands Agent RFP Management System - Complete Infrastructure Deployment'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    Description: Environment name
+  
+  Region:
+    Type: String
+    Default: us-east-1
+    Description: AWS Region
+  
+  AWSAccountId:
+    Type: String
+    Default: '689050397154'
+    Description: AWS Account ID
+  
+  S3BucketName:
+    Type: String
+    Default: rfp-documents-quadrasystems-v2
+    Description: S3 bucket for RFP documents
+  
+  CognitoUserPoolId:
+    Type: String
+    Default: us-east-1_2oMHgTNMY
+    Description: Cognito User Pool ID
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment Configuration"
+        Parameters:
+          - EnvironmentName
+          - Region
+          - AWSAccountId
+      - Label:
+          default: "AWS Services Configuration"
+        Parameters:
+          - S3BucketName
+          - CognitoUserPoolId
+
+Resources:
+
+  # =====================================================================
+  # STEP 1: IAM ROLE FOR LAMBDAS
+  # =====================================================================
+  
+  RFPAgentLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rfp-agent-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt RFPSuppliersTable.Arn
+                  - !GetAtt RFPRequestsTable.Arn
+                  - !GetAtt RFPProposalsTable.Arn
+                  - !GetAtt RFPScoresTable.Arn
+                  - !GetAtt AgentCoreMemoryTable.Arn
+        
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${S3BucketName}'
+                  - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+        
+        - PolicyName: LambdaInvoke
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !Sub 'arn:aws:lambda:${Region}:${AWS::AccountId}:function:supplier_lookup_tool'
+                  - !Sub 'arn:aws:lambda:${Region}:${AWS::AccountId}:function:rfp_generator_tool'
+                  - !Sub 'arn:aws:lambda:${Region}:${AWS::AccountId}:function:email_dispatch_tool'
+                  - !Sub 'arn:aws:lambda:${Region}:${AWS::AccountId}:function:proposal_fetch_tool'
+                  - !Sub 'arn:aws:lambda:${Region}:${AWS::AccountId}:function:scoring_tool'
+                  - !Sub 'arn:aws:lambda:${Region}:${AWS::AccountId}:function:recommendation_tool'
+        
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource:
+                  - !Sub 'arn:aws:bedrock:${Region}::foundation-model/amazon.nova-pro-v1:0'
+
+  # =====================================================================
+  # STEP 2: DYNAMODB TABLES
+  # =====================================================================
+  
+  RFPSuppliersTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: rfp-suppliers-v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: supplier_id
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+      KeySchema:
+        - AttributeName: supplier_id
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      GlobalSecondaryIndexes:
+        - IndexName: CategoryIndex
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RFPRequestsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: rfp-requests-v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: RequestID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: RequestID
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RFPProposalsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: rfp-proposals-v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: proposal_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: proposal_id
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RFPScoresTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: rfp-scores-v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: score_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: score_id
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  AgentCoreMemoryTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    Properties:
+      TableName: agentcore-memory-v2
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+        - AttributeName: user_id
+          KeyType: RANGE
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: TTL
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # =====================================================================
+  # STEP 3: S3 BUCKET FOR RFP DOCUMENTS
+  # =====================================================================
+  
+  RFPDocumentsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # =====================================================================
+  # STEP 4: LAMBDA LAYER (Dependencies)
+  # =====================================================================
+  
+  RFPAgentLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: rfp-agent-dependencies
+      Description: Dependencies for RFP Agent Lambdas
+      Content:
+        S3Bucket: !Ref S3BucketName
+        S3Key: layers/dependencies.zip
+      CompatibleRuntimes:
+        - python3.12
+
+  # =====================================================================
+  # STEP 5: LAMBDA FUNCTIONS - ORCHESTRATOR
+  # =====================================================================
+  
+  OrchestratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: rfp-agent-orchestrator
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: agentcore_orchestrator.handler
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/orchestrator.zip
+      Tags:
+        - Key: Component
+          Value: Orchestrator
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # =====================================================================
+  # STEP 6: LAMBDA FUNCTIONS - TOOLS (6)
+  # =====================================================================
+  
+  SupplierLookupLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: supplier_lookup_tool
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: supplier_lookup_lambda.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/tool1-supplier-lookup.zip
+      Tags:
+        - Key: Component
+          Value: Tool1-SupplierLookup
+
+  RFPGeneratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: rfp_generator_tool
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: rfp_generator_lambda.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/tool2-rfp-generator.zip
+      Tags:
+        - Key: Component
+          Value: Tool2-RFPGenerator
+
+  EmailDispatchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: email_dispatch_tool
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: email_dispatch_lambda.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/tool3-email-dispatch.zip
+      Tags:
+        - Key: Component
+          Value: Tool3-EmailDispatch
+
+  ProposalFetchLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: proposal_fetch_tool
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: proposal_fetch_lambda.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/tool4-proposal-fetch.zip
+      Tags:
+        - Key: Component
+          Value: Tool4-ProposalFetch
+
+  ScoringLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: scoring_tool
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: scoring_lambda.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/tool5-scoring.zip
+      Tags:
+        - Key: Component
+          Value: Tool5-Scoring
+
+  RecommendationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: recommendation_tool
+      Runtime: python3.12
+      Role: !GetAtt RFPAgentLambdaRole.Arn
+      Handler: recommendation_lambda.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          REGION: !Ref Region
+      Code:
+        S3Bucket: !Ref S3BucketName
+        S3Key: lambdas/tool6-recommendation.zip
+      Tags:
+        - Key: Component
+          Value: Tool6-Recommendation
+
+  # =====================================================================
+  # STEP 7: API GATEWAY
+  # =====================================================================
+  
+  RFPAgentAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: rfp-agent-api
+      Description: RFP Agent API Gateway
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  RFPAgentAPIResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RFPAgentAPI
+      ParentId: !GetAtt RFPAgentAPI.RootResourceId
+      PathPart: process-rfp
+
+  RFPAgentAPIMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RFPAgentAPI
+      ResourceId: !Ref RFPAgentAPIResource
+      HttpMethod: POST
+      AuthorizationType: AWS_IAM
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${OrchestratorLambda.Arn}/invocations'
+
+  OrchestratorLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref OrchestratorLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${Region}:${AWSAccountId}:${RFPAgentAPI}/*/*'
+
+  RFPAgentAPIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: RFPAgentAPIMethod
+    Properties:
+      RestApiId: !Ref RFPAgentAPI
+      StageName: prod
+
+  # =====================================================================
+  # STEP 8: CLOUDWATCH LOG GROUPS
+  # =====================================================================
+  
+  OrchestratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/rfp-agent-orchestrator
+      RetentionInDays: 30
+
+  SupplierLookupLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/supplier_lookup_tool
+      RetentionInDays: 30
+
+  RFPGeneratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/rfp_generator_tool
+      RetentionInDays: 30
+
+  EmailDispatchLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/email_dispatch_tool
+      RetentionInDays: 30
+
+  ProposalFetchLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/proposal_fetch_tool
+      RetentionInDays: 30
+
+  ScoringLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/scoring_tool
+      RetentionInDays: 30
+
+  RecommendationLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/recommendation_tool
+      RetentionInDays: 30
+
+  # =====================================================================
+  # STEP 9: CLOUDWATCH ALARMS
+  # =====================================================================
+  
+  OrchestratorErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rfp-orchestrator-errors
+      AlarmDescription: Alert when orchestrator Lambda has errors
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref OrchestratorLambda
+      TreatMissingData: notBreaching
+
+  DynamoDBThrottlingAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rfp-dynamodb-throttling
+      AlarmDescription: Alert when DynamoDB is throttled
+      MetricName: ConsumedWriteCapacityUnits
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # =====================================================================
+  # STEP 10: OUTPUTS
+  # =====================================================================
+
+Outputs:
+  
+  APIEndpoint:
+    Description: RFP Agent API Endpoint
+    Value: !Sub 'https://${RFPAgentAPI}.execute-api.${Region}.amazonaws.com/prod/process-rfp'
+    Export:
+      Name: RFPAgentAPIEndpoint
+  
+  OrchestratorLambdaArn:
+    Description: Orchestrator Lambda ARN
+    Value: !GetAtt OrchestratorLambda.Arn
+    Export:
+      Name: OrchestratorLambdaArn
+  
+  AgentCoreMemoryTableName:
+    Description: AgentCore Memory DynamoDB Table
+    Value: !Ref AgentCoreMemoryTable
+    Export:
+      Name: AgentCoreMemoryTableName
+  
+  RFPDocumentsBucketName:
+    Description: S3 Bucket for RFP Documents
+    Value: !Ref RFPDocumentsBucket
+    Export:
+      Name: RFPDocumentsBucketName
+  
+  IAMRoleArn:
+    Description: IAM Role ARN for Lambdas
+    Value: !GetAtt RFPAgentLambdaRole.Arn
+    Export:
+      Name: RFPAgentLambdaRoleArn
+  
+  ToolLambdaArns:
+    Description: Tool Lambda ARNs
+    Value: !Join
+      - ','
+      - - !GetAtt SupplierLookupLambda.Arn
+        - !GetAtt RFPGeneratorLambda.Arn
+        - !GetAtt EmailDispatchLambda.Arn
+        - !GetAtt ProposalFetchLambda.Arn
+        - !GetAtt ScoringLambda.Arn
+        - !GetAtt RecommendationLambda.Arn
+    Export:
+      Name: ToolLambdaArns
+  
+  DeploymentStatus:
+    Description: Deployment Status
+    Value: 'SUCCESS - All resources created'

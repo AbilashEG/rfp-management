@@ -1,0 +1,135 @@
+name: Build and Deploy to ECR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: 689050397154
+  ECR_REGISTRY: 689050397154.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/rfp-agent-lambda-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Orchestrator image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/rfp-agent-orchestrator:$IMAGE_TAG \
+            -t $ECR_REGISTRY/rfp-agent-orchestrator:latest \
+            --build-arg LAMBDA_NAME=agentcore_orchestrator \
+            .
+          docker push $ECR_REGISTRY/rfp-agent-orchestrator:$IMAGE_TAG
+          docker push $ECR_REGISTRY/rfp-agent-orchestrator:latest
+
+      - name: Build and push Supplier Lookup image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/supplier-lookup-tool:$IMAGE_TAG \
+            -t $ECR_REGISTRY/supplier-lookup-tool:latest \
+            --build-arg LAMBDA_NAME=supplier_lookup_lambda \
+            --build-arg SOURCE_FILE=RFP-main/lambda/supplier_lookup_lambda.py \
+            .
+          docker push $ECR_REGISTRY/supplier-lookup-tool:$IMAGE_TAG
+          docker push $ECR_REGISTRY/supplier-lookup-tool:latest
+
+      - name: Build and push RFP Generator image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/rfp-generator-tool:$IMAGE_TAG \
+            -t $ECR_REGISTRY/rfp-generator-tool:latest \
+            --build-arg LAMBDA_NAME=rfp_generator_lambda \
+            --build-arg SOURCE_FILE=RFP-main/lambda/rfp_generator_lambda.py \
+            .
+          docker push $ECR_REGISTRY/rfp-generator-tool:$IMAGE_TAG
+          docker push $ECR_REGISTRY/rfp-generator-tool:latest
+
+      - name: Build and push Email Dispatch image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/email-dispatch-tool:$IMAGE_TAG \
+            -t $ECR_REGISTRY/email-dispatch-tool:latest \
+            --build-arg LAMBDA_NAME=email_dispatch_lambda \
+            --build-arg SOURCE_FILE=RFP-main/lambda/email_dispatch_lambda.py \
+            .
+          docker push $ECR_REGISTRY/email-dispatch-tool:$IMAGE_TAG
+          docker push $ECR_REGISTRY/email-dispatch-tool:latest
+
+      - name: Build and push Proposal Fetch image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/proposal-fetch-tool:$IMAGE_TAG \
+            -t $ECR_REGISTRY/proposal-fetch-tool:latest \
+            --build-arg LAMBDA_NAME=proposal_fetch_lambda \
+            --build-arg SOURCE_FILE=RFP-main/lambda/proposal_fetch_lambda.py \
+            .
+          docker push $ECR_REGISTRY/proposal-fetch-tool:$IMAGE_TAG
+          docker push $ECR_REGISTRY/proposal-fetch-tool:latest
+
+      - name: Build and push Scoring image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/scoring-tool:$IMAGE_TAG \
+            -t $ECR_REGISTRY/scoring-tool:latest \
+            --build-arg LAMBDA_NAME=scoring_lambda \
+            --build-arg SOURCE_FILE=RFP-main/lambda/scoring_lambda.py \
+            .
+          docker push $ECR_REGISTRY/scoring-tool:$IMAGE_TAG
+          docker push $ECR_REGISTRY/scoring-tool:latest
+
+      - name: Build and push Recommendation image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/recommendation-tool:$IMAGE_TAG \
+            -t $ECR_REGISTRY/recommendation-tool:latest \
+            --build-arg LAMBDA_NAME=recommendation_lambda \
+            --build-arg SOURCE_FILE=RFP-main/lambda/recommendation_lambda.py \
+            .
+          docker push $ECR_REGISTRY/recommendation-tool:$IMAGE_TAG
+          docker push $ECR_REGISTRY/recommendation-tool:latest
+
+      - name: Print ECR URIs
+        run: |
+          echo "ECR Images successfully pushed!"
+          echo "Orchestrator: ${{ env.ECR_REGISTRY }}/rfp-agent-orchestrator:latest"
+          echo "Supplier Lookup: ${{ env.ECR_REGISTRY }}/supplier-lookup-tool:latest"
+          echo "RFP Generator: ${{ env.ECR_REGISTRY }}/rfp-generator-tool:latest"
+          echo "Email Dispatch: ${{ env.ECR_REGISTRY }}/email-dispatch-tool:latest"
+          echo "Proposal Fetch: ${{ env.ECR_REGISTRY }}/proposal-fetch-tool:latest"
+          echo "Scoring: ${{ env.ECR_REGISTRY }}/scoring-tool:latest"
+          echo "Recommendation: ${{ env.ECR_REGISTRY }}/recommendation-tool:latest"
