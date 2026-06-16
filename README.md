@@ -21,49 +21,35 @@ Production-ready AWS Lambda-based RFP (Request for Proposal) management system u
 - CloudShell access
 - Python 3.12 or higher
 
-### Quick Start
+### Quick Start - CloudShell (5 minutes)
 
-1. **Clone repository**
+1. **Open AWS CloudShell** and download repository:
    ```bash
-   git clone https://github.com/AbilashEG/rfp-management.git
-   cd rfp-management
-   ```
-
-2. **In CloudShell:**
-   ```bash
-   # Download from GitHub
    wget https://github.com/AbilashEG/rfp-management/archive/main.zip
    unzip main.zip
    cd rfp-management-main
-
-   # Deploy infrastructure
-   aws cloudformation create-stack \
-     --stack-name rfp-production-stack \
-     --template-body file://RFP-main/cloudformation-deployment.yaml \
-     --capabilities CAPABILITY_NAMED_IAM \
-     --region us-east-1
-   
-   # Wait for stack creation
-   aws cloudformation wait stack-create-complete \
-     --stack-name rfp-production-stack \
-     --region us-east-1
    ```
 
-3. **Create Lambda functions from ZIP**
+2. **Run automated deployment script**:
    ```bash
-   # Install dependencies
-   pip install -r RFP-main/requirements.txt -t package/
-
-   # Build ZIPs for each Lambda
-   cd RFP-main
-   
-   # Orchestrator ZIP
-   cp agentcore_orchestrator.py agentcore_memory.py config.py ../package/
-   cd ../package && zip -r orchestrator.zip . && cd ..
-   
-   # Tool ZIPs (similar process for each tool)
-   # ... repeat for each tool Lambda
+   bash cloudshell-deploy.sh
    ```
+
+   This script automatically:
+   - ✓ Installs Python dependencies
+   - ✓ Builds 7 Lambda ZIPs with correct structure (dependencies at root)
+   - ✓ Uploads all ZIPs to S3
+   - ✓ Deploys code to all 7 Lambda functions
+   - ✓ Tests orchestrator Lambda
+   - ✓ Displays results and API endpoint
+
+3. **Verify deployment**:
+   ```bash
+   # Check logs
+   aws logs tail /aws/lambda/rfp-agent-orchestrator-v2 --follow --region us-east-1
+   ```
+
+**See [CLOUDSHELL_DEPLOYMENT.md](CLOUDSHELL_DEPLOYMENT.md) for detailed guide and troubleshooting.**
 
 ## Configuration
 
