@@ -1,0 +1,127 @@
+name: rfp-supplier-agent
+version: 1.0.0
+description: RFP Management Agent powered by Amazon Nova Pro
+
+runtime:
+  framework: strands
+  model: amazon.nova-pro-v1:0
+  region: us-east-1
+  entry_point: RFP-main/agentcore_orchestrator.handler
+
+performance:
+  memory_size: 512
+  timeout: 300
+  ephemeral_storage: 10240
+
+memory:
+  enabled: true
+  table_name: agentcore-memory-v2
+  ttl_days: 30
+  persistence:
+    strategy: dynamodb
+    auto_cleanup: true
+    compression: enabled
+
+identity:
+  provider: cognito
+  enabled: true
+  token_validation: true
+  auto_create_user_pool: true
+
+observability:
+  enabled: true
+  tracing:
+    xray: true
+    service_map: true
+  logging:
+    cloudwatch: true
+    log_group: /agentcore/rfp-supplier-agent
+    log_retention_days: 30
+    structured_logs: true
+  metrics:
+    namespace: RFPAgent
+    custom_metrics:
+      - agent_execution_time
+      - tool_invocation_count
+      - approval_decision_rate
+
+policy:
+  human_approval:
+    enabled: true
+    trigger_field: approval_required
+    trigger_value: true
+    timeout_seconds: 3600
+
+gateway:
+  mcp:
+    enabled: true
+    tools:
+      - name: supplier_lookup_tool
+        source: rfp-supplier-lookup
+        lambda_function: rfp-supplier-lookup
+        timeout: 30
+        retries: 2
+        description: Find qualified suppliers by category and rating
+        
+      - name: rfp_generator_tool
+        source: rfp-rfp-generator
+        lambda_function: rfp-rfp-generator
+        timeout: 60
+        retries: 1
+        description: Generate RFP document and store in S3
+        
+      - name: email_dispatch_tool
+        source: rfp-email-dispatch
+        lambda_function: rfp-email-dispatch
+        timeout: 45
+        retries: 2
+        description: Send RFP emails to supplier list
+        
+      - name: proposal_fetch_tool
+        source: rfp-proposal-fetch
+        lambda_function: rfp-proposal-fetch
+        timeout: 45
+        retries: 2
+        description: Retrieve supplier proposals from database
+        
+      - name: scoring_tool
+        source: rfp-scoring
+        lambda_function: rfp-scoring
+        timeout: 60
+        retries: 1
+        description: Score proposals using weighted criteria
+        
+      - name: recommendation_tool
+        source: rfp-recommendation
+        lambda_function: rfp-recommendation
+        timeout: 30
+        retries: 1
+        description: Generate top supplier recommendations with reasoning
+
+environment:
+  REGION: us-east-1
+  LOG_LEVEL: INFO
+  MODEL_ID: amazon.nova-pro-v1:0
+  AGENT_NAME: rfp-supplier-agent
+  DYNAMODB_TABLE: agentcore-memory-v2
+  S3_BUCKET: rfp-documents-quadrasystems
+
+tags:
+  Environment: production
+  Team: rfp-management
+  Application: rfp-agent
+  CostCenter: procurement
+
+lifecycle:
+  auto_scaling:
+    min_instances: 1
+    max_instances: 10
+    target_concurrency: 5
+  
+  backup:
+    enabled: true
+    retention_days: 30
+    
+  monitoring:
+    health_check_interval: 60
+    error_threshold: 0.01
