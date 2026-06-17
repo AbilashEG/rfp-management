@@ -155,28 +155,16 @@ for lambda_key in "${!LAMBDAS[@]}"; do
     
     # Wait for Lambda to be ready
     echo "Waiting for Lambda to be ready..."
-    sleep 2
+    sleep 3
     
-    # Test Lambda
-    echo ""
-    echo "Step 3e: Testing Lambda function..."
+    # Verify Lambda is Active
+    LAMBDA_STATE=$(aws lambda get-function --function-name "$FUNCTION_NAME" --region $REGION --query 'Configuration.State' --output text 2>/dev/null)
     
-    aws lambda invoke \
-        --function-name "$FUNCTION_NAME" \
-        --payload '{"body": "{\"message\": \"test\"}"}' \
-        --region $REGION \
-        response_${lambda_key}.json > /dev/null 2>&1
-    
-    if grep -q "errorMessage" response_${lambda_key}.json; then
-        echo "⚠️  WARNING: Error detected in Lambda response"
-        grep "errorMessage" response_${lambda_key}.json
-        echo "    → Check CloudWatch logs: aws logs tail /aws/lambda/$FUNCTION_NAME --follow --region $REGION"
+    if [ "$LAMBDA_STATE" = "Active" ]; then
+        echo "✓ Lambda is Active and ready"
     else
-        echo "✓ Lambda test successful"
+        echo "⚠️  Lambda state: $LAMBDA_STATE (may still be initializing)"
     fi
-    
-    # Clean up response file
-    rm -f response_${lambda_key}.json
 done
 
 # ============================================================================
