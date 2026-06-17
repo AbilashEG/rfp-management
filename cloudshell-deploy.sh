@@ -58,8 +58,13 @@ create_lambda_zip() {
     size_mb=$(du -sh "$zip_name" | cut -f1)
     echo "  ✓ Created: $zip_name ($size_mb)"
     
-    # Cleanup
+    # Cleanup temp directory
     rm -rf "temp-$lambda_name"
+    
+    # Clean package cache to save space
+    rm -rf package/
+    mkdir -p package
+    cp -r /tmp/python-deps/. package/ 2>/dev/null || true
 }
 
 # Build all 7 Lambda ZIPs
