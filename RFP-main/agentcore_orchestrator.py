@@ -13,7 +13,6 @@ import boto3
 from typing import Optional, Dict, Any, List
 
 from strands import Agent
-from strands.types import ModelProvider
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
