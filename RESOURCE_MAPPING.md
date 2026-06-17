@@ -1,297 +1,356 @@
-# Resource Mapping - AgentCore to AWS
+# Resource Mapping: Current State → AgentCore Runtime
 
-## ARCHITECTURE MAPPING
+This document maps all existing resources to AgentCore pillars.
+
+---
+
+## Current State (Before AgentCore Deployment)
 
 ```
-LOCAL DEVELOPMENT
-─────────────────────────────────────────
-agentcore dev → AgentCore Dev Server (localhost:8080)
-    ↓
-    ├─ agentcore_orchestrator.py (Strands Agent)
-    │   └─ Uses: amazon.nova-pro-v1:0 (Bedrock)
-    │
-    └─ 6 MCP Tools (Local Routing)
-        ├─ supplier_lookup_lambda → rfp-supplier-lookup (Lambda)
-        ├─ rfp_generator_lambda → rfp-rfp-generator (Lambda)
-        ├─ email_dispatch_lambda → rfp-email-dispatch (Lambda)
-        ├─ proposal_fetch_lambda → rfp-proposal-fetch (Lambda)
-        ├─ scoring_lambda → rfp-scoring (Lambda)
-        └─ recommendation_lambda → rfp-recommendation (Lambda)
-            ↓
-            Data Layer
-            ├─ DynamoDB: rfp-suppliers, rfp-requests, rfp-proposals, rfp-scores
-            ├─ S3: rfp-documents-quadrasystems
-            └─ Memory: agentcore-memory-v2
+Lambda Functions (Already Deployed):
+├─ rfp-agent-orchestrator-v2 (entry point)
+├─ rfp-supplier-lookup-v2 (tool 1)
+├─ rfp-rfp-generator-v2 (tool 2)
+├─ rfp-email-dispatch-v2 (tool 3)
+├─ rfp-proposal-fetch-v2 (tool 4)
+├─ rfp-scoring-v2 (tool 5)
+└─ rfp-recommendation-v2 (tool 6)
 
+DynamoDB Tables (Already Created):
+├─ agentcore-memory-v2 (for agent memory - 30 day TTL)
+├─ rfp-suppliers (seeded with 8 suppliers)
+├─ rfp-requests (seeded with 2 RFPs)
+├─ rfp-proposals (seeded with 27 proposals)
+├─ rfp-scores (empty - will populate during workflow)
+└─ rfp-recommendations (empty - will populate during workflow)
 
-AWS PRODUCTION
-─────────────────────────────────────────
-agentcore deploy → AWS AgentCore Runtime
-    ↓
-    ┌─────────────────────────────────────────┐
-    │ AgentCore Runtime Instance              │
-    │ (Managed by AWS)                        │
-    │                                         │
-    │ ┌─ Agent Container ──────────────────┐ │
-    │ │ agentcore_orchestrator.py          │ │
-    │ │ (Strands Agent)                    │ │
-    │ └────────────────────────────────────┘ │
-    │                ↓                       │
-    │ ┌─ Runtime Endpoint ─────────────────┐ │
-    │ │ https://agentcore.us-east-1...     │ │
-    │ │ /agents/rfp-supplier-agent         │ │
-    │ └────────────────────────────────────┘ │
-    │                ↓                       │
-    │ ┌─ MCP Gateway ──────────────────────┐ │
-    │ │ (Tool Router)                      │ │
-    │ │                                    │ │
-    │ │ Registered Tools:                  │ │
-    │ │  • supplier_lookup_tool            │ │
-    │ │  • rfp_generator_tool              │ │
-    │ │  • email_dispatch_tool             │ │
-    │ │  • proposal_fetch_tool             │ │
-    │ │  • scoring_tool                    │ │
-    │ │  • recommendation_tool             │ │
-    │ └────────────────────────────────────┘ │
-    │                ↓                       │
-    │ ┌─ Pillars (Built-in) ───────────────┐ │
-    │ │ ✓ Memory (30-day TTL)              │ │
-    │ │ ✓ Identity (Cognito)               │ │
-    │ │ ✓ Observability (X-Ray, CW)        │ │
-    │ │ ✓ Policy (Human Approval)          │ │
-    │ └────────────────────────────────────┘ │
-    └─────────────────────────────────────────┘
-                   ↓
-            ┌──────┴──────────────┬──────────────┐
-            ↓                     ↓              ↓
-        MCP Tool 1-6          DynamoDB        S3
-        (Lambda)              Tables          Bucket
-        
-        ├─ rfp-supplier-lookup        → rfp-suppliers
-        ├─ rfp-rfp-generator          → rfp-requests
-        ├─ rfp-email-dispatch         → (email)
-        ├─ rfp-proposal-fetch         → rfp-proposals
-        ├─ rfp-scoring                → rfp-scores
-        └─ rfp-recommendation         → (recommendations)
-                                          +
-                                      rfp-documents-
-                                      quadrasystems
+S3 Bucket (Already Created):
+└─ rfp-documents-quadrasystems-v2 (for RFP documents)
+
+Source Code (Ready to Deploy):
+├─ RFP-main/agentcore_orchestrator.py (agent entry point)
+├─ RFP-main/agentcore_memory.py (memory handler)
+├─ RFP-main/config.py (configuration)
+├─ RFP-main/requirements.txt (dependencies)
+└─ RFP-main/lambda/ (6 tool Lambdas)
 ```
 
 ---
 
-## FILE-TO-RESOURCE MAPPING
-
-### Source Code → AgentCore Runtime
-
-| Source File | Maps To | AgentCore Component | AWS Resource |
-|---|---|---|---|
-| `agentcore_orchestrator.py` | Agent Logic | Runtime Container | EC2 (managed) |
-| `agentcore_memory.py` | Memory Service | Memory Pillar | DynamoDB table |
-| `config.py` | Configuration | Runtime Settings | Parameter Store |
-| `requirements.txt` | Dependencies | Container Image | ECR |
-
-### Lambda Tools → MCP Gateway
-
-| Lambda File | Tool Name | Registered As | MCP Gateway |
-|---|---|---|---|
-| `supplier_lookup_lambda.py` | Supplier Lookup | `supplier_lookup_tool` | ✓ Registered |
-| `rfp_generator_lambda.py` | RFP Generator | `rfp_generator_tool` | ✓ Registered |
-| `email_dispatch_lambda.py` | Email Dispatch | `email_dispatch_tool` | ✓ Registered |
-| `proposal_fetch_lambda.py` | Proposal Fetch | `proposal_fetch_tool` | ✓ Registered |
-| `scoring_lambda.py` | Scoring | `scoring_tool` | ✓ Registered |
-| `recommendation_lambda.py` | Recommendations | `recommendation_tool` | ✓ Registered |
-
-### Configuration → Pillars
-
-| agentcore.yaml Section | Maps To | AWS Resource | Status |
-|---|---|---|---|
-| `runtime` | Runtime Pillar | AgentCore Runtime | ✓ |
-| `memory` | Memory Pillar | DynamoDB + TTL | ✓ |
-| `identity.provider: cognito` | Identity Pillar | Cognito User Pool | ✓ |
-| `observability` | Observability Pillar | X-Ray + CloudWatch | ✓ |
-| `policy.human_approval` | Policy Pillar | Approval Queue/Workflow | ✓ |
-| `gateway.mcp.tools` | Gateway Pillar | MCP Tool Registry | ✓ |
-
----
-
-## DATA FLOW MAPPING
-
-### Request → Response Flow
+## After AgentCore Deployment
 
 ```
-1. CLIENT REQUEST
-   {"message": "Create RFP for sensors"}
-   ↓
+Bedrock AgentCore Runtime (NEW):
+├─ Agent: rfp-supplier-agent
+├─ Framework: Strands Agents SDK
+├─ Model: amazon.nova-pro-v1:0
+├─ Region: us-east-1
+└─ Entry Point: RFP-main/agentcore_orchestrator.handler
 
-2. AGENTCORE RUNTIME
-   agentcore_orchestrator.py executes
-   ├─ Nova Pro LLM processes message
-   ├─ Decides which tools to invoke
-   └─ Routes through MCP Gateway
-   ↓
+┌────────────────────────────────────────────────────────┐
+│              AGENT CORE PILLARS (NEW)                   │
+├────────────────────────────────────────────────────────┤
+│                                                         │
+│  1. RUNTIME PILLAR (Agent Execution)                  │
+│     ├─ Hosted in: AWS Bedrock AgentCore              │
+│     ├─ Framework: Strands Agents                     │
+│     ├─ Model: amazon.nova-pro-v1:0                  │
+│     └─ Entry: agentcore_orchestrator.handler        │
+│                                                         │
+│  2. MEMORY PILLAR (Conversation History)             │
+│     ├─ Table: agentcore-memory-v2                   │
+│     ├─ TTL: 30 days                                 │
+│     ├─ Persistence: DynamoDB (auto-enabled)         │
+│     └─ Auto-cleanup: Enabled                        │
+│                                                         │
+│  3. GATEWAY PILLAR (MCP Tool Registration)           │
+│     ├─ supplier_lookup_tool        → rfp-supplier-lookup-v2      │
+│     ├─ rfp_generator_tool          → rfp-rfp-generator-v2        │
+│     ├─ email_dispatch_tool         → rfp-email-dispatch-v2       │
+│     ├─ proposal_fetch_tool         → rfp-proposal-fetch-v2       │
+│     ├─ scoring_tool                → rfp-scoring-v2              │
+│     └─ recommendation_tool         → rfp-recommendation-v2       │
+│                                                         │
+│  4. IDENTITY PILLAR (User Authentication)            │
+│     ├─ Provider: Cognito (auto-created)              │
+│     ├─ User Pool: rfp-supplier-agent-pool            │
+│     ├─ Auto-create: Enabled                          │
+│     └─ Token validation: Enabled                     │
+│                                                         │
+│  5. OBSERVABILITY PILLAR (Monitoring & Logging)      │
+│     ├─ Tracing: X-Ray (CloudWatch Service Map)       │
+│     ├─ Logs: CloudWatch /agentcore/rfp-supplier-agent│
+│     ├─ Metrics: Custom namespace RFPAgent             │
+│     ├─ Log Retention: 30 days                        │
+│     ├─ Structured Logs: Enabled                      │
+│     └─ Custom Metrics:                               │
+│         ├─ agent_execution_time                      │
+│         ├─ tool_invocation_count                     │
+│         └─ approval_decision_rate                    │
+│                                                         │
+│  6. POLICY PILLAR (Human Approval Gates)             │
+│     ├─ Human Approval: Enabled                       │
+│     ├─ Trigger Field: approval_required              │
+│     ├─ Trigger Value: true                           │
+│     └─ Timeout: 1 hour (3600 seconds)                │
+│                                                         │
+└────────────────────────────────────────────────────────┘
 
-3. MCP GATEWAY ROUTES
-   ├─ Tool 1: supplier_lookup_tool
-   │  └─ Invokes: rfp-supplier-lookup Lambda
-   │     └─ Reads: rfp-suppliers DynamoDB table
-   │
-   ├─ Tool 2: rfp_generator_tool
-   │  └─ Invokes: rfp-rfp-generator Lambda
-   │     └─ Writes: rfp-requests table + S3
-   │
-   ├─ Tool 3: email_dispatch_tool
-   │  └─ Invokes: rfp-email-dispatch Lambda
-   │     └─ Sends: Emails via SES
-   │
-   ├─ Tool 4: proposal_fetch_tool
-   │  └─ Invokes: rfp-proposal-fetch Lambda
-   │     └─ Reads: rfp-proposals table
-   │
-   ├─ Tool 5: scoring_tool
-   │  └─ Invokes: rfp-scoring Lambda
-   │     └─ Writes: rfp-scores table
-   │
-   └─ Tool 6: recommendation_tool
-      └─ Invokes: rfp-recommendation Lambda
-         └─ Reads: rfp-scores table
-   ↓
+MCP Gateway (Tool Routing):
+├─ Routes tool calls from agent to Lambda functions
+├─ Manages retries (2-3 per tool)
+├─ Handles timeouts (30-60 sec per tool)
+└─ Returns results back to agent
 
-4. MEMORY PILLAR
-   Session saved to agentcore-memory-v2
-   ├─ Conversation history persisted
-   ├─ TTL: 30 days auto-cleanup
-   └─ Retrieved on next request
-   ↓
-
-5. OBSERVABILITY PILLAR
-   ├─ X-Ray: Traces all Lambda calls
-   ├─ CloudWatch: Logs each step
-   └─ Metrics: Performance data
-   ↓
-
-6. POLICY PILLAR
-   ├─ Check: approval_required = true?
-   ├─ If yes: Send to approval workflow
-   └─ If no: Auto-approve
-   ↓
-
-7. RESPONSE
-   {"status": "SUCCESS", "rfp_id": "RFP-..."}
-```
-
----
-
-## DEPLOYMENT MAPPING
-
-### What Gets Created
-
-| Action | Creates | Maps To | Resource ID |
-|---|---|---|---|
-| `agentcore deploy` | AgentCore Runtime | Bedrock Agents | `agent-20260617-abc123` |
-| MCP Registration | Tool Gateways (6x) | Lambda Invocation | `supplier_lookup_tool` etc |
-| Memory Setup | DynamoDB Link | DynamoDB table | `agentcore-memory-v2` |
-| Observability Setup | CloudWatch Logs | Log Group | `/agentcore/rfp-supplier-agent` |
-| X-Ray Activation | Service Map | X-Ray Groups | `rfp-supplier-agent` |
-| Identity Config | Cognito Integration | User Pool | `us-east-1_XXXXX` |
-| Policy Setup | Approval Queue | SQS Queue | `rfp-approval-queue` |
-
----
-
-## INVOCATION MAPPING
-
-### How Requests Get Routed
-
-```
-CLIENT
-  ↓
-HTTP → https://agentcore.us-east-1.amazonaws.com/agents/rfp-supplier-agent
-  ↓
-API Gateway (if configured)
-  OR
-Direct AgentCore Endpoint
-  ↓
-AWS IAM (Authentication)
-  ↓
-Cognito (Identity Pillar)
-  Validates token
-  ↓
-AgentCore Runtime
-  ↓
-Agent Logic (agentcore_orchestrator.py)
-  ↓
-Tool Selection (LLM Decision)
-  ↓
-MCP Gateway
-  ↓
-Tool Invocation (Parallel/Sequential)
-  ├─ Lambda 1 → Results
-  ├─ Lambda 2 → Results
-  ├─ Lambda 3 → Results
-  ├─ Lambda 4 → Results
-  ├─ Lambda 5 → Results
-  └─ Lambda 6 → Results
-  ↓
-Memory Pillar
-  Save context to DynamoDB
-  ↓
-Policy Pillar
-  Check approval gate
-  ↓
-Response Assembly
-  ↓
-Observability Pillar
-  Log + Trace
-  ↓
-HTTP Response ← Client
+Data Flow:
+┌─────────────────────────────────────────────────────────┐
+│ 1. User sends request to AgentCore Runtime endpoint    │
+│ 2. Agent (Strands) receives request                    │
+│ 3. Agent analyzes request (AWS Nova Pro)               │
+│ 4. Agent calls Tool 1: supplier_lookup                 │
+│    └─ MCP Gateway routes to rfp-supplier-lookup-v2     │
+│    └─ Lambda queries rfp-suppliers table               │
+│    └─ Returns suppliers to agent                       │
+│ 5. Agent calls Tool 2: rfp_generator                   │
+│    └─ MCP Gateway routes to rfp-rfp-generator-v2       │
+│    └─ Lambda creates RFP, stores in S3                 │
+│    └─ Returns document URL to agent                    │
+│ 6. Agent calls Tool 3: email_dispatch                  │
+│    └─ MCP Gateway routes to rfp-email-dispatch-v2      │
+│    └─ Lambda sends emails to suppliers                 │
+│    └─ Returns confirmation to agent                    │
+│ 7. Agent calls Tool 4: proposal_fetch                  │
+│    └─ MCP Gateway routes to rfp-proposal-fetch-v2      │
+│    └─ Lambda reads rfp-proposals table                 │
+│    └─ Returns proposals to agent                       │
+│ 8. Agent calls Tool 5: scoring                         │
+│    └─ MCP Gateway routes to rfp-scoring-v2             │
+│    └─ Lambda scores proposals, stores in rfp-scores    │
+│    └─ Returns scores to agent                          │
+│ 9. Agent calls Tool 6: recommendation                  │
+│    └─ MCP Gateway routes to rfp-recommendation-v2      │
+│    └─ Lambda generates ranking, stores in rfp-recommendations │
+│    └─ Returns top 2 suppliers to agent                 │
+│ 10. Agent stores session in agentcore-memory-v2        │
+│ 11. Agent returns recommendations to user              │
+│ 12. X-Ray traces entire flow (observability)           │
+│ 13. CloudWatch logs all operations                     │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## RESOURCE VERIFICATION
+## File to Resource Mapping
 
-### What to Check After Deployment
-
-| Pillar | AWS Console Path | Verify |
-|---|---|---|
-| **Runtime** | Bedrock → Agents | Status = ACTIVE |
-| **Gateway** | Agent detail → Gateway | 6 tools listed |
-| **Memory** | Agent detail → Memory | Table = agentcore-memory-v2, TTL = 30d |
-| **Identity** | Agent detail → Identity | Provider = Cognito |
-| **Observability** | Agent detail → Observability | X-Ray ✓, CloudWatch ✓ |
-| **Policy** | Agent detail → Policy | Approval enabled ✓ |
-| **Logs** | CloudWatch → Log Groups | `/agentcore/rfp-supplier-agent` exists |
-| **Traces** | X-Ray → Service Map | Node for each tool visible |
-| **Data** | DynamoDB | All 4 tables have items |
-
----
-
-## MONITORING MAPPING
-
-### Where to Monitor What
-
-| Metric | Tool | Location | Check |
-|---|---|---|---|
-| Agent Status | AWS Console | Bedrock → Agents | ACTIVE |
-| Tool Invocations | CloudWatch Logs | `/agentcore/rfp-supplier-agent` | "Tool invoked: supplier_lookup_tool" |
-| Error Rate | CloudWatch Metrics | Custom namespace: RFPAgent | Error count |
-| Latency | X-Ray | Service Map | Duration per tool |
-| Requests/min | CloudWatch | Custom metrics | Request count |
-| Memory Usage | CloudWatch | Lambda metrics | MB used |
-| Memory Hits | DynamoDB | Metrics | Read/write operations |
+| Source File | Type | AWS Resource | Pillar |
+|-------------|------|-------------|--------|
+| `agentcore.yaml` | Config | Agent Configuration | All |
+| `RFP-main/agentcore_orchestrator.py` | Code | Agent Runtime Entry | Runtime |
+| `RFP-main/agentcore_memory.py` | Code | Memory Handler | Memory |
+| `RFP-main/config.py` | Code | Configuration Loader | All |
+| `RFP-main/lambda/supplier_lookup_lambda.py` | Tool | rfp-supplier-lookup-v2 | Gateway |
+| `RFP-main/lambda/rfp_generator_lambda.py` | Tool | rfp-rfp-generator-v2 | Gateway |
+| `RFP-main/lambda/email_dispatch_lambda.py` | Tool | rfp-email-dispatch-v2 | Gateway |
+| `RFP-main/lambda/proposal_fetch_lambda.py` | Tool | rfp-proposal-fetch-v2 | Gateway |
+| `RFP-main/lambda/scoring_lambda.py` | Tool | rfp-scoring-v2 | Gateway |
+| `RFP-main/lambda/recommendation_lambda.py` | Tool | rfp-recommendation-v2 | Gateway |
+| DynamoDB table | Data | agentcore-memory-v2 | Memory |
+| DynamoDB table | Data | rfp-suppliers | Tool 1 Data |
+| DynamoDB table | Data | rfp-requests | Tool 2 Data |
+| DynamoDB table | Data | rfp-proposals | Tool 4 Data |
+| DynamoDB table | Data | rfp-scores | Tool 5 Data |
+| DynamoDB table | Data | rfp-recommendations | Tool 6 Data |
+| S3 bucket | Storage | rfp-documents-quadrasystems-v2 | Tool 2 Storage |
+| X-Ray service | Monitoring | Service Map | Observability |
+| CloudWatch Logs | Monitoring | /agentcore/rfp-supplier-agent | Observability |
+| Cognito | Identity | rfp-supplier-agent-pool | Identity |
 
 ---
 
-## COST MAPPING
+## Execution Flow: Step by Step
 
-| Resource | Cost Driver | Estimated |
-|---|---|---|
-| AgentCore Runtime | Concurrent agents | $X per agent-hour |
-| Lambda (6 tools) | Invocations + duration | Pay-per-invocation |
-| DynamoDB | Read/write units | On-demand pricing |
-| S3 | Storage + requests | GB stored + operations |
-| X-Ray | Traces | Per 1M traces |
-| CloudWatch | Logs + metrics | Per GB ingested |
+### Phase 1: Before Deployment (Current State)
+
+```
+Lambda Orchestrator (rfp-agent-orchestrator-v2)
+├─ Called manually via AWS Console
+├─ Reads agent code from RFP-main/agentcore_orchestrator.py
+├─ Calls individual tool Lambdas directly
+├─ No MCP Gateway routing
+├─ No agent memory persistence
+└─ No observability (X-Ray/CloudWatch)
+```
+
+### Phase 2: Local Testing (Step 4)
+
+```
+Local AgentCore Dev Server
+├─ Runs agentcore_orchestrator.py locally
+├─ Emulates AWS Bedrock AgentCore Runtime
+├─ Tests 6 MCP tools against real DynamoDB/S3
+├─ Tests memory persistence
+├─ Tests policy gates
+└─ Tests observability logging
+```
+
+### Phase 3: After AWS Deployment (Step 5)
+
+```
+AWS Bedrock AgentCore Runtime
+├─ Agent deployed to managed service
+├─ MCP Gateway created and configured
+├─ Tools auto-registered:
+│  └─ supplier_lookup → rfp-supplier-lookup-v2
+│  └─ rfp_generator → rfp-rfp-generator-v2
+│  └─ email_dispatch → rfp-email-dispatch-v2
+│  └─ proposal_fetch → rfp-proposal-fetch-v2
+│  └─ scoring → rfp-scoring-v2
+│  └─ recommendation → rfp-recommendation-v2
+├─ Memory auto-enabled (agentcore-memory-v2)
+├─ Identity auto-enabled (Cognito)
+├─ Observability auto-enabled (X-Ray + CloudWatch)
+├─ Policy auto-enabled (human approval gates)
+└─ Agent runs inside AWS managed runtime
+```
+
+### Phase 4: Production Use
+
+```
+Client → API Gateway (optional) → AgentCore Runtime Endpoint
+                                    ├─ Bedrock Agents (Nova Pro)
+                                    ├─ MCP Gateway (6 tools)
+                                    ├─ Memory (DynamoDB)
+                                    ├─ Identity (Cognito)
+                                    ├─ Policy (Approval gates)
+                                    └─ Observability (X-Ray/CW)
+```
 
 ---
+
+## Prerequisites Check
+
+Before deploying, verify all resources exist:
+
+### AWS Resources (Already Created)
+
+```bash
+# Check Lambda functions exist
+aws lambda list-functions --region us-east-1 | grep rfp
+
+# Check DynamoDB tables exist
+aws dynamodb list-tables --region us-east-1 | grep rfp
+
+# Check S3 bucket exists
+aws s3 ls | grep rfp-documents
+
+# Check Bedrock model access
+aws bedrock list-available-models --region us-east-1 | grep nova
+```
+
+### Source Code (Ready)
+
+```bash
+# Verify files exist
+ls -la agentcore.yaml
+ls -la RFP-main/agentcore_orchestrator.py
+ls -la RFP-main/lambda/
+```
+
+### AWS Permissions
+
+Verify your AWS user/role has:
+- `bedrock:*` (for AgentCore Runtime)
+- `lambda:InvokeFunction` (to call tools)
+- `dynamodb:*` (for memory table)
+- `s3:*` (for documents)
+- `xray:*` (for tracing)
+- `logs:*` (for CloudWatch)
+- `cognito:*` (for identity)
+
+---
+
+## Deployment Commands Summary
+
+```bash
+# Step 1: Install CLI
+npm install -g @aws/agentcore
+
+# Step 2: Configure credentials
+aws configure
+
+# Step 3: Verify structure (manual check)
+
+# Step 4: Local test
+agentcore dev
+agentcore invoke '{"message": "..."}'
+
+# Step 5: Deploy to AWS
+agentcore deploy
+
+# Step 6: Verify pillars (manual AWS Console check)
+
+# Step 7: Test in AWS Console (manual test)
+
+# Step 8: Setup API Gateway (optional)
+agentcore add api-gateway
+agentcore deploy
+```
+
+---
+
+## Troubleshooting Matrix
+
+| Problem | Root Cause | Solution |
+|---------|-----------|----------|
+| `agentcore: command not found` | CLI not installed | Run: `npm install -g @aws/agentcore` |
+| Local dev fails to load agent | File path wrong | Check `entry_point` in agentcore.yaml |
+| Tools not registered | Lambda not in us-east-1 | Deploy all Lambdas to us-east-1 |
+| Memory not persisting | Table doesn't exist | Create agentcore-memory-v2 table |
+| Deployment times out | Cognito creation slow | Wait 10-15 min, check Cognito console |
+| Tools return errors | DynamoDB tables not seeded | Run seed_data.py in RFP-main/setup |
+| X-Ray traces missing | Observability disabled | Re-run `agentcore deploy` |
+| Approval gate not working | SQS queue not configured | Run `agentcore add policy` |
+
+---
+
+## Cost Estimate (Monthly)
+
+```
+AgentCore Runtime:
+├─ Agent Execution: $0.24/1M invocations
+│  └─ Est. 100k/month = $24
+├─ MCP Tool Calls: $0.10 per call
+│  └─ 6 tools × 100k = $600
+├─ Memory Storage: $1.25/GB/month
+│  └─ Est. 1GB = $1.25
+└─ Observability: $0.50/trace, $5/GB logs
+   └─ Est. 1000 traces + 10GB logs = $550
+
+Lambda Tool Functions:
+├─ Invocations: 6 tools × 100k = $0.20
+├─ Memory: 6 × 512MB × 100s = ~$25
+└─ Data Transfer: ~$10
+
+DynamoDB:
+├─ On-Demand Read: ~$30
+├─ On-Demand Write: ~$30
+└─ Storage: ~$10
+
+S3:
+├─ Storage: ~$5
+└─ Requests: ~$1
+
+**Estimated Monthly Cost: ~$1,200**
+```
+
+---
+
+## Next Steps
+
+1. ✅ Verify all resources exist (prerequisite check above)
+2. ✅ Follow AGENTCORE_DEPLOYMENT.md steps 1-8
+3. ✅ Monitor cost in AWS Billing dashboard
+4. ✅ Set up auto-scaling policies
+5. ✅ Create backup strategy for agent memory
+6. ✅ Document custom approval workflow
 
