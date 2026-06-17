@@ -13,6 +13,7 @@ import boto3
 from typing import Optional, Dict, Any, List
 
 from strands import Agent
+from strands.models import BedrockModel
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -126,11 +127,15 @@ class RFPOrchestrator:
         self.user_id = user_id
         self.session_id = session_id or str(uuid.uuid4())
         
+        # Initialize Bedrock Model
+        model = BedrockModel(
+            model_id="amazon.nova-pro-v1:0",
+            region_name=REGION
+        )
+        
         # Initialize Strands Agent
         self.agent = Agent(
-            model_provider=ModelProvider.BEDROCK,
-            model_id="amazon.nova-pro-v1:0",
-            region=REGION
+            model=model
         )
         
         logger.info(f"✓ Strands Agent initialized - Session: {self.session_id}")
