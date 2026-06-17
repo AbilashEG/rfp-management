@@ -9,7 +9,6 @@ import logging
 import os
 from datetime import datetime
 import boto3
-from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
 logger = logging.getLogger()
@@ -20,36 +19,16 @@ dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('REGION', 'us-e
 memory_table = dynamodb.Table('agentcore-memory')
 
 
-# ============================================================================
-# PYDANTIC MODELS FOR STRUCTURED OUTPUT
-# ============================================================================
-class MessageModel(BaseModel):
-    """Structured message model for memory"""
-    role: str  # system, user, tool, agent
-    content: str
-    timestamp: str
-    metadata: Optional[Dict[str, Any]] = None
-
-
-class SessionMemoryModel(BaseModel):
-    """Structured session memory model"""
-    session_id: str
-    user_id: str
-    conversation_history: List[MessageModel]
-    preferences: Dict[str, Any]
-    updated_at: str
-
-
 class AgentCoreMemory:
     """
     Strands Agents-optimized memory service.
-    Manages conversation history, preferences, and session memory with structured output.
+    Manages conversation history, preferences, and session memory with dict-based output.
     """
     
     def __init__(self, user_id: str, session_id: str):
         self.user_id = user_id
         self.session_id = session_id
-        self.conversation_history: List[MessageModel] = []
+        self.conversation_history: List[Dict[str, Any]] = []
         self.preferences: Dict[str, Any] = {}
         self.load_session()
     
@@ -66,10 +45,7 @@ class AgentCoreMemory:
             
             if 'Item' in response:
                 item = response['Item']
-                hist_data = json.loads(item.get('conversation_history', '[]'))
-                self.conversation_history = [
-                    MessageModel(**msg) for msg in hist_data
-                ]
+                self.conversation_history = json.loads(item.get('conversation_history', '[]'))
                 self.preferences = json.loads(item.get('preferences', '{}'))
                 logger.info(f"✅ Loaded session: {len(self.conversation_history)} messages")
             else:
@@ -79,15 +55,15 @@ class AgentCoreMemory:
             self.conversation_history = []
             self.preferences = {}
     
-    def add_message(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> MessageModel:
+    def add_message(self, role: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Add structured message to conversation history."""
         try:
-            message = MessageModel(
-                role=role,
-                content=content,
-                timestamp=datetime.now().isoformat(),
-                metadata=metadata or {}
-            )
+            message = {
+                "role": role,
+                "content": content,
+                "timestamp": datetime.now().isoformat(),
+                "metadata": metadata or {}
+            }
             self.conversation_history.append(message)
             self.save_session()
             logger.info(f"✅ Message added - Role: {role}, Content length: {len(content)}")
@@ -113,7 +89,7 @@ class AgentCoreMemory:
     def save_session(self) -> None:
         """Save session to DynamoDB with structured format."""
         try:
-            hist_json = json.dumps([msg.model_dump() for msg in self.conversation_history])
+            hist_json = json.dumps(self.conversation_history)
             pref_json = json.dumps(self.preferences)
             
             memory_table.put_item(
@@ -131,13 +107,13 @@ class AgentCoreMemory:
             logger.error(f"❌ Failed to save session: {str(e)}")
             raise
     
-    def get_context(self, last_n: int = 5) -> List[MessageModel]:
+    def get_context(self, last_n: int = 5) -> List[Dict[str, Any]]:
         """Get last N messages for agent context window."""
         context = self.conversation_history[-last_n:] if self.conversation_history else []
         logger.info(f"✅ Retrieved {len(context)} context messages")
         return context
     
-    def get_full_history(self) -> List[MessageModel]:
+    def get_full_history(self) -> List[Dict[str, Any]]:
         """Get entire conversation history."""
         logger.info(f"✅ Retrieved full history: {len(self.conversation_history)} messages")
         return self.conversation_history
@@ -152,12 +128,12 @@ class AgentCoreMemory:
             logger.error(f"❌ Failed to clear history: {str(e)}")
             raise
     
-    def get_session_memory(self) -> SessionMemoryModel:
+    def get_session_memory(self) -> Dict[str, Any]:
         """Get complete structured session memory."""
-        return SessionMemoryModel(
-            session_id=self.session_id,
-            user_id=self.user_id,
-            conversation_history=self.conversation_history,
-            preferences=self.preferences,
-            updated_at=datetime.now().isoformat()
-        )
+        return {
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "conversation_history": self.conversation_history,
+            "preferences": self.preferences,
+            "updated_at": datetime.now().isoformat()
+        }
