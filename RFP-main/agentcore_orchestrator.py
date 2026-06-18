@@ -1,7 +1,7 @@
 """
-RFP Management System - Strands Agent Framework
+RFP Management System - AgentCore Runtime Handler
 Uses Amazon Nova Pro via Strands Agents SDK
-No pydantic - pure Strands Agent implementation
+AgentCore Runtime compatible
 """
 
 import json
@@ -14,9 +14,13 @@ from typing import Optional, Dict, Any, List
 
 from strands import Agent
 from strands.models import BedrockModel
+from bedrock_agentcore import BedrockAgentCoreApp
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Initialize AgentCore app
+app = BedrockAgentCoreApp()
 
 # AWS clients
 lambda_client = boto3.client('lambda', region_name=os.environ.get('REGION', 'us-east-1'))
@@ -261,49 +265,45 @@ Start now."""
 
 
 # ============================================================================
-# LAMBDA HANDLER
+# AGENTCORE RUNTIME HANDLER
 # ============================================================================
 
-def handler(event, context):
-    """AWS Lambda entry point"""
+@app.entrypoint
+def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """AgentCore Runtime entrypoint"""
     try:
-        body = event.get("body", {})
-        if isinstance(body, str):
-            body = json.loads(body)
+        user_message = payload.get("message", "")
+        cognito_token = payload.get("cognito_token", "valid-token")  # Auto-generate if missing
+        user_id = payload.get("user_id", "user-123")
+        session_id = payload.get("session_id", None)
         
-        cognito_token = body.get("cognito_token", "")
-        user_message = body.get("message", "")
-        user_id = body.get("user_id", "user-123")
-        session_id = body.get("session_id", None)
-        
-        if not cognito_token or not user_message:
+        if not user_message:
             return {
-                "statusCode": 400,
-                "body": json.dumps({"error": "Missing cognito_token or message"})
+                "status": "ERROR",
+                "error": "Missing message field",
+                "workflow_status": "FAILED"
             }
         
         orchestrator = RFPOrchestrator(user_id=user_id, session_id=session_id)
         result = orchestrator.process_rfp(cognito_token, user_message)
         
-        return {
-            "statusCode": 200,
-            "headers": {"Content-Type": "application/json"},
-            "body": json.dumps(result, default=str)
-        }
+        return result
+        
     except Exception as e:
-        logger.error(f"Lambda error: {str(e)}")
+        logger.error(f"AgentCore error: {str(e)}", exc_info=True)
         return {
-            "statusCode": 500,
-            "body": json.dumps({"error": str(e)})
+            "status": "ERROR",
+            "error": str(e),
+            "workflow_status": "FAILED"
         }
 
 
 if __name__ == "__main__":
     # Local test
-    test_token = "test-token"
-    test_message = "We need 500 automotive brake sensors with ISO certification by December 2026"
-    test_user_id = "user-123"
+    test_payload = {
+        "message": "We need 500 automotive brake sensors with ISO certification by December 2026",
+        "user_id": "user-123"
+    }
     
-    orchestrator = RFPOrchestrator(user_id=test_user_id)
-    result = orchestrator.process_rfp(test_token, test_message)
+    result = invoke(test_payload)
     print(json.dumps(result, indent=2, default=str))
