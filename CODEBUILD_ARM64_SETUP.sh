@@ -174,20 +174,10 @@ BUILD_CONFIG='{
   }
 }'
 
-# Check if project exists
-if aws codebuild batch-get-projects --names "$PROJECT_NAME" --region "$REGION" 2>/dev/null | grep -q "$PROJECT_NAME"; then
-    echo "✓ CodeBuild project already exists: $PROJECT_NAME"
-    # Update it
-    aws codebuild update-project \
-        --cli-input-json "$BUILD_CONFIG" \
-        --region "$REGION"
-    echo "✓ Updated project configuration"
-else
-    aws codebuild create-project \
-        --cli-input-json "$BUILD_CONFIG" \
-        --region "$REGION"
-    echo "✓ Created CodeBuild project: $PROJECT_NAME"
-fi
+# Create the project (will fail if exists, which is ok)
+aws codebuild create-project \
+    --cli-input-json "$BUILD_CONFIG" \
+    --region "$REGION" 2>/dev/null && echo "✓ Created CodeBuild project: $PROJECT_NAME" || echo "✓ CodeBuild project already exists: $PROJECT_NAME"
 
 # ============================================================================
 # STEP 4: Start the Build
