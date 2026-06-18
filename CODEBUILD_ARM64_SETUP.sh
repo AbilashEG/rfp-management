@@ -126,13 +126,12 @@ echo -e "\n[STEP 3] Creating CodeBuild project..."
 PROJECT_NAME="rfp-agent-arm64-build"
 ROLE_ARN="arn:aws:iam::$ACCOUNT_ID:role/$ROLE_NAME"
 
-# Build configuration
+# Build configuration - using NO_SOURCE with inline buildspec
 BUILD_CONFIG='{
   "name": "'$PROJECT_NAME'",
   "source": {
-    "type": "GITHUB",
-    "location": "'$GITHUB_REPO'",
-    "gitCloneDepth": 1
+    "type": "NO_SOURCE",
+    "buildspec": "version: 0.2\nphases:\n  pre_build:\n    commands:\n      - echo Logging in to Amazon ECR...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME\n      - IMAGE_TAG=${IMAGE_TAG}\n      - echo Repository URI=$REPOSITORY_URI\n      - echo Image Tag=$IMAGE_TAG\n      - git clone https://github.com/AbilashEEG/rfp-management.git .\n  build:\n    commands:\n      - echo Building Docker image on date\n      - docker build -t $REPOSITORY_URI:$IMAGE_TAG .\n      - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:latest\n      - docker inspect $REPOSITORY_URI:$IMAGE_TAG\n      - echo Docker image built successfully\n  post_build:\n    commands:\n      - echo Pushing the Docker images...\n      - docker push $REPOSITORY_URI:$IMAGE_TAG\n      - docker push $REPOSITORY_URI:latest\n      - echo Build completed\n"
   },
   "artifacts": {
     "type": "NO_ARTIFACTS"
@@ -174,10 +173,21 @@ BUILD_CONFIG='{
   }
 }'
 
-# Create the project (will fail if exists, which is ok)
-aws codebuild create-project \
+# Create the project
+echo "Creating CodeBuild project..."
+CREATE_OUTPUT=$(aws codebuild create-project \
     --cli-input-json "$BUILD_CONFIG" \
-    --region "$REGION" 2>/dev/null && echo "✓ Created CodeBuild project: $PROJECT_NAME" || echo "✓ CodeBuild project already exists: $PROJECT_NAME"
+    --region "$REGION" 2>&1)
+
+if echo "$CREATE_OUTPUT" | grep -q "ResourceAlreadyExistsException"; then
+    echo "✓ CodeBuild project already exists: $PROJECT_NAME"
+elif echo "$CREATE_OUTPUT" | grep -q "arn:aws:codebuild"; then
+    echo "✓ Created CodeBuild project: $PROJECT_NAME"
+else
+    echo "❌ Failed to create project. Error:"
+    echo "$CREATE_OUTPUT"
+    exit 1
+fi
 
 # ============================================================================
 # STEP 4: Start the Build
