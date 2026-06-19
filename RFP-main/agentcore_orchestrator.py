@@ -12,7 +12,6 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from strands import Agent
 from strands.models import BedrockModel
 from strands.tools.mcp import MCPClient
-from mcp.client.streamable_http import streamablehttp_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,36 +49,19 @@ RULES:
 """
 
 
-def get_workload_token():
-    """Get AgentCore workload identity token for Gateway auth."""
-    client = boto3.client("bedrock-agentcore", region_name=REGION)
-    try:
-        response = client.get_workload_access_token(
-            workloadIdentityArn=f"arn:aws:bedrock-agentcore:{REGION}:689050397154:workload-identity-directory/default/workload-identity/rfpsupplieragent-ODy0E42s5l"
-        )
-        return response.get("accessToken")
-    except Exception as e:
-        logger.error(f"Failed to get workload token: {e}")
-        return None
-
-
 def run_rfp_agent(message: str) -> dict:
     """Run the RFP agent with real MCP Gateway tools."""
     try:
-        token = get_workload_token()
+        model = BedrockModel(
+            model_id="amazon.nova-pro-v1:0",
+            region_name="us-east-1"
+        )
 
-        headers = {"Content-Type": "application/json"}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-
-        with MCPClient(lambda: streamablehttp_client(GATEWAY_URL, headers=headers)) as mcp_client:
+        with MCPClient(
+            {"url": GATEWAY_URL, "transport": "streamable_http"}
+        ) as mcp_client:
             tools = mcp_client.list_tools()
-            logger.info(f"Connected to Gateway. Tools available: {[t.name for t in tools]}")
-
-            model = BedrockModel(
-                model_id=MODEL_ID,
-                region_name=REGION
-            )
+            logger.info(f"Tools from Gateway: {[t.name for t in tools]}")
 
             agent = Agent(
                 model=model,
@@ -91,8 +73,7 @@ def run_rfp_agent(message: str) -> dict:
 
             return {
                 "status": "success",
-                "response": str(response),
-                "tools_used": [t.name for t in tools]
+                "response": str(response)
             }
 
     except Exception as e:
