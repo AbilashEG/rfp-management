@@ -1,0 +1,88 @@
+================================================================================
+CLOUDSHELL COMMANDS - ARM64 BUILD FOR AGENTCORE RUNTIME
+================================================================================
+
+Run these commands IN CLOUDSHELL (https://console.aws.amazon.com/cloudshell)
+
+--------------------------------------------------------------------------------
+STEP 1: Create CodeBuild Project
+--------------------------------------------------------------------------------
+
+aws codebuild create-project \
+  --name rfp-agent-arm64-build \
+  --source type=GITHUB,location=https://github.com/AbilashEEG/rfp-management.git \
+  --artifacts type=NO_ARTIFACTS \
+  --environment type=ARM_CONTAINER,image=aws/codebuild/amazonlinux2-aarch64-standard:3.0,computeType=BUILD_GENERAL1_LARGE,privilegedMode=true,environmentVariables='[{name=AWS_DEFAULT_REGION,value=us-east-1},{name=AWS_ACCOUNT_ID,value=689050397154},{name=IMAGE_REPO_NAME,value=rfp-agent},{name=IMAGE_TAG,value=orchestrator-agentcore-arm64}]' \
+  --service-role arn:aws:iam::689050397154:role/codebuild-rfp-agent-arm64-role \
+  --region us-east-1
+
+EXPECTED OUTPUT: JSON with project ARN
+IF ERROR "ResourceAlreadyExistsException": Project already exists - skip to Step 2
+
+--------------------------------------------------------------------------------
+STEP 2: Start the Build
+--------------------------------------------------------------------------------
+
+aws codebuild start-build \
+  --project-name rfp-agent-arm64-build \
+  --region us-east-1
+
+EXPECTED OUTPUT: JSON with "id": "rfp-agent-arm64-build:xxxxxxxx"
+COPY THE BUILD ID (the part after the colon)
+
+--------------------------------------------------------------------------------
+STEP 3: Monitor Build Progress (repeat every 30 seconds)
+--------------------------------------------------------------------------------
+
+Replace <BUILD_ID> with the actual ID from Step 2:
+
+aws codebuild batch-get-builds \
+  --ids rfp-agent-arm64-build:<BUILD_ID> \
+  --region us-east-1 \
+  --query 'builds[0].{Status:buildStatus,Phase:currentPhase}'
+
+EXPECTED OUTPUT: 
+- Status: IN_PROGRESS, Phase: PROVISIONING
+- Status: IN_PROGRESS, Phase: BUILD
+- Status: SUCCEEDED (final - takes 5-10 minutes)
+
+IF Status: FAILED, check logs:
+aws logs tail /aws/codebuild/rfp-agent-arm64-build --follow --region us-east-1
+
+--------------------------------------------------------------------------------
+STEP 4: Update AgentCore Runtime (after build succeeds)
+--------------------------------------------------------------------------------
+
+aws bedrock-agentcore update-resource \
+  --resource-arn "arn:aws:bedrock-agentcore:us-east-1:689050397154:runtime/rfpsupplieragent-ODy0E42s5l" \
+  --image-uri "689050397154.dkr.ecr.us-east-1.amazonaws.com/rfp-agent:orchestrator-agentcore-arm64" \
+  --region us-east-1
+
+EXPECTED OUTPUT: JSON confirming update
+
+--------------------------------------------------------------------------------
+STEP 5: Test the Agent
+--------------------------------------------------------------------------------
+
+aws bedrock-agentcore invoke-agent-runtime \
+  --agent-runtime-arn "arn:aws:bedrock-agentcore:us-east-1:689050397154:runtime/rfpsupplieragent-ODy0E42s5l" \
+  --payload '{"message": "We need 500 brake sensors by 2026-09-30. Specs: ABS wheel speed sensor, IP67, CAN bus output. Category: sensors."}' \
+  --region us-east-1
+
+EXPECTED OUTPUT: JSON with workflow results
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+If Step 1 fails with "Invalid environment type":
+- Try: image=aws/codebuild/amazonlinux2-arm64-standard:3.0
+
+If Step 2 fails with "Project not found":
+- Verify project exists: aws codebuild list-projects --region us-east-1
+
+If build fails at Docker push:
+- Check IAM role has ECR permissions
+- Role: codebuild-rfp-agent-arm64-role
+
+================================================================================

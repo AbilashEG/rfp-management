@@ -2,17 +2,21 @@ version: 0.2
 
 # AWS CodeBuild buildspec for ARM64 Docker image build
 # This runs in CodeBuild's ARM64 environment, so no emulation needed
+# Uses NO_SOURCE - clones GitHub repo inside the build
 
 phases:
   pre_build:
     commands:
+      - echo "Cloning GitHub repository..."
+      - git clone https://github.com/AbilashEEG/rfp-management.git
+      - cd rfp-management
       - echo "Logging in to Amazon ECR..."
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
       - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - COMMIT_HASH=$(git rev-parse --short HEAD)
       - IMAGE_TAG=${IMAGE_TAG}
-      - echo "Repository URI: $REPOSITORY_URI"
-      - echo "Image Tag: $IMAGE_TAG"
+      - echo "Repository URI=$REPOSITORY_URI"
+      - echo "Image Tag=$IMAGE_TAG"
       
   build:
     commands:
@@ -20,8 +24,8 @@ phases:
       - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
       - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG-$COMMIT_HASH
       - docker tag $REPOSITORY_URI:$IMAGE_TAG $REPOSITORY_URI:latest
-      - |
-        docker inspect $REPOSITORY_URI:$IMAGE_TAG | jq '.[] | "\(.Architecture)"'
+      - echo "Verifying architecture..."
+      - docker inspect $REPOSITORY_URI:$IMAGE_TAG | jq '.[0].Architecture'
       - echo "Docker image built successfully"
       
   post_build:
@@ -30,22 +34,8 @@ phases:
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       - docker push $REPOSITORY_URI:$IMAGE_TAG-$COMMIT_HASH
       - docker push $REPOSITORY_URI:latest
-      - echo "Writing image definitions file..."
-      - printf '[{"name":"rfp-agent","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
-      - cat imagedefinitions.json
       - echo "Build completed on `date`"
-
-artifacts:
-  files: imagedefinitions.json
-  name: BuildArtifact
-  discard-paths: yes
 
 cache:
   paths:
     - '/root/.docker/**/*'
-
-logs:
-  cloudwatch-logs:
-    group-name: /aws/codebuild/rfp-agent-arm64-build
-    stream-name: arm64-build-log
-    status: ENABLED
