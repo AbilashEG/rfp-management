@@ -12,6 +12,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from strands import Agent
 from strands.models import BedrockModel
 from strands.tools.mcp import MCPClient
+from mcp.client.streamable_http import streamablehttp_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -57,9 +58,7 @@ def run_rfp_agent(message: str) -> dict:
             region_name="us-east-1"
         )
 
-        with MCPClient(
-            {"url": GATEWAY_URL, "transport": "streamable_http"}
-        ) as mcp_client:
+        with MCPClient(lambda: streamablehttp_client(GATEWAY_URL)) as mcp_client:
             tools = mcp_client.list_tools()
             logger.info(f"Tools from Gateway: {[t.name for t in tools]}")
 
