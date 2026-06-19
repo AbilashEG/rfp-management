@@ -50,6 +50,21 @@ RULES:
 """
 
 
+def get_workload_token() -> str:
+    """Get AgentCore workload identity token for Gateway auth."""
+    try:
+        client = boto3.client("bedrock-agentcore", region_name=REGION)
+        response = client.get_workload_access_token(
+            workloadIdentityArn=f"arn:aws:bedrock-agentcore:{REGION}:689050397154:workload-identity-directory/default/workload-identity/rfpsupplieragent-ODy0E42s5l"
+        )
+        token = response.get("accessToken")
+        logger.info("✓ Workload token obtained")
+        return token
+    except Exception as e:
+        logger.warning(f"Could not get workload token (continuing without auth): {e}")
+        return None
+
+
 def run_rfp_agent(message: str) -> dict:
     """Run the RFP agent with real MCP Gateway tools."""
     try:
@@ -58,9 +73,18 @@ def run_rfp_agent(message: str) -> dict:
             region_name="us-east-1"
         )
 
-        with MCPClient(lambda: streamablehttp_client(GATEWAY_URL)) as mcp_client:
+        # Get auth token for Gateway
+        token = get_workload_token()
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        logger.info(f"Connecting to Gateway: {GATEWAY_URL}")
+        logger.info(f"Auth header present: {bool(token)}")
+
+        with MCPClient(lambda: streamablehttp_client(GATEWAY_URL, headers=headers)) as mcp_client:
             tools = mcp_client.list_tools()
-            logger.info(f"Tools from Gateway: {[t.name for t in tools]}")
+            logger.info(f"✓ Tools from Gateway: {[t.name for t in tools]}")
 
             agent = Agent(
                 model=model,
@@ -76,10 +100,13 @@ def run_rfp_agent(message: str) -> dict:
             }
 
     except Exception as e:
+        import traceback
         logger.error(f"Agent error: {e}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
-            "error": str(e)
+            "error": str(e),
+            "detail": traceback.format_exc()
         }
 
 
@@ -117,7 +144,7 @@ class RFPAgentHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": str(e)}).encode())
 
     def do_GET(self):
-        if self.path == "/health":
+        if self.path == "/health" or self.path == "/ping":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
