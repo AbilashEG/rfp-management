@@ -63,6 +63,16 @@ RULES:
 
 lambda_client = boto3.client("lambda", region_name=REGION)
 
+# Correct Lambda function names
+LAMBDA_FUNCTIONS = {
+    "supplier_lookup":  "rfp-supplier-lookup",
+    "rfp_generator":    "rfp-rfp-generator",
+    "email_dispatch":   "rfp-email-dispatch",
+    "proposal_fetch":   "rfp-proposal-fetch",
+    "scoring":          "rfp-scoring",
+    "recommendation":   "rfp-recommendation"
+}
+
 
 def invoke_lambda(function_name: str, payload: dict) -> dict:
     """Invoke a Lambda function and return parsed response body."""
@@ -100,7 +110,7 @@ def supplier_lookup(category: str, rfp_id: str) -> str:
     Returns:
         JSON string with list of matching suppliers
     """
-    result = invoke_lambda("supplier_lookup_lambda", {
+    result = invoke_lambda(LAMBDA_FUNCTIONS["supplier_lookup"], {
         "category": category,
         "rfp_id": rfp_id
     })
@@ -119,7 +129,7 @@ def rfp_generator(rfp_id: str, requirement: str, supplier_ids: list) -> str:
     Returns:
         JSON string with RFP document details and S3 location
     """
-    result = invoke_lambda("rfp_generator_lambda", {
+    result = invoke_lambda(LAMBDA_FUNCTIONS["rfp_generator"], {
         "rfp_id": rfp_id,
         "requirement": requirement,
         "supplier_ids": supplier_ids
@@ -138,7 +148,7 @@ def email_dispatch(rfp_id: str, supplier_emails: list) -> str:
     Returns:
         JSON string confirming dispatch status
     """
-    result = invoke_lambda("email_dispatch_lambda", {
+    result = invoke_lambda(LAMBDA_FUNCTIONS["email_dispatch"], {
         "rfp_id": rfp_id,
         "supplier_emails": supplier_emails
     })
@@ -156,7 +166,7 @@ def proposal_fetch(rfp_id: str, supplier_ids: list) -> str:
     Returns:
         JSON string with all proposals received
     """
-    result = invoke_lambda("proposal_fetch_lambda", {
+    result = invoke_lambda(LAMBDA_FUNCTIONS["proposal_fetch"], {
         "rfp_id": rfp_id,
         "supplier_ids": supplier_ids
     })
@@ -174,7 +184,7 @@ def scoring(rfp_id: str, proposals: list) -> str:
     Returns:
         JSON string with scored proposals and individual scores
     """
-    result = invoke_lambda("scoring_lambda", {
+    result = invoke_lambda(LAMBDA_FUNCTIONS["scoring"], {
         "rfp_id": rfp_id,
         "proposals": proposals
     })
@@ -192,7 +202,7 @@ def recommendation(rfp_id: str, scored_proposals: list) -> str:
     Returns:
         JSON string with top recommendations, risk flags, and approval_required flag
     """
-    result = invoke_lambda("recommendation_lambda", {
+    result = invoke_lambda(LAMBDA_FUNCTIONS["recommendation"], {
         "rfp_id": rfp_id,
         "scored_proposals": scored_proposals
     })
