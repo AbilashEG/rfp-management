@@ -12,7 +12,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from strands import Agent
 from strands.models import BedrockModel
 from strands.tools.mcp import MCPClient
-from strands_tools.mcp.streamable_http import StreamableHTTPTransport
+from mcp.client.streamable_http import streamablehttp_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,12 +72,7 @@ def run_rfp_agent(message: str) -> dict:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        transport = StreamableHTTPTransport(
-            url=GATEWAY_URL,
-            headers=headers
-        )
-
-        with MCPClient(transport=transport) as mcp_client:
+        with MCPClient(lambda: streamablehttp_client(GATEWAY_URL, headers=headers)) as mcp_client:
             tools = mcp_client.list_tools()
             logger.info(f"Connected to Gateway. Tools available: {[t.name for t in tools]}")
 
