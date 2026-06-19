@@ -298,12 +298,63 @@ def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
-if __name__ == "__main__":
-    # Local test
-    test_payload = {
-        "message": "We need 500 automotive brake sensors with ISO certification by December 2026",
-        "user_id": "user-123"
-    }
+# ============================================================================
+# HTTP SERVER FOR AGENTCORE RUNTIME
+# ============================================================================
+
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class RFPAgentHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for AgentCore Runtime"""
     
-    result = invoke(test_payload)
-    print(json.dumps(result, indent=2, default=str))
+    def do_POST(self):
+        """Handle POST requests to run the agent"""
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length)
+        
+        try:
+            data = json.loads(body)
+            logger.info(f"Received request: {data}")
+            
+            # Run the agent via the invoke function
+            response = invoke(data)
+            
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(response, default=str).encode())
+            
+        except Exception as e:
+            logger.error(f"Request error: {str(e)}", exc_info=True)
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "status": "error",
+                "error": str(e)
+            }).encode())
+    
+    def do_GET(self):
+        """Handle GET requests - health check"""
+        if self.path == "/health":
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "healthy"}).encode())
+        else:
+            self.send_response(404)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Not found"}).encode())
+    
+    def log_message(self, format, *args):
+        """Override to use logger instead of stderr"""
+        logger.info(f"HTTP: {format % args}")
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    logger.info(f"Starting RFP Agent HTTP server on port {port}")
+    server = HTTPServer(("0.0.0.0", port), RFPAgentHandler)
+    logger.info(f"✓ Server ready - listening on 0.0.0.0:{port}")
+    server.serve_forever()

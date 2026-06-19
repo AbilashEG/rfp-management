@@ -1,15 +1,18 @@
-FROM --platform=linux/arm64 public.ecr.aws/lambda/python:3.12
+FROM python:3.12-slim
 
-WORKDIR ${LAMBDA_TASK_ROOT}
+WORKDIR /app
 
-# Copy application files
-COPY RFP-main/agentcore_orchestrator.py ${LAMBDA_TASK_ROOT}/
-COPY RFP-main/agentcore_memory.py ${LAMBDA_TASK_ROOT}/
-COPY RFP-main/config.py ${LAMBDA_TASK_ROOT}/
+# Copy requirements first for better caching
 COPY RFP-main/requirements.txt .
-
-# Install dependencies (pip will resolve rpds-py correctly in Linux environment)
 RUN pip install -r requirements.txt --no-cache-dir
 
-# Set the CMD to your handler
-CMD [ "agentcore_orchestrator.handler" ]
+# Copy application files
+COPY RFP-main/agentcore_orchestrator.py .
+COPY RFP-main/agentcore_memory.py .
+COPY RFP-main/config.py .
+
+# Expose port 8080 for AgentCore Runtime
+EXPOSE 8080
+
+# Start HTTP server
+CMD ["python", "agentcore_orchestrator.py"]
