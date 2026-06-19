@@ -1,360 +1,163 @@
 """
-RFP Management System - AgentCore Runtime Handler
-Uses Amazon Nova Pro via Strands Agents SDK
-AgentCore Runtime compatible
+RFP Management System - AgentCore Runtime Orchestrator
+Connects to AgentCore Gateway MCP for real tool execution
+Model: amazon.nova-pro-v1:0 | Region: us-east-1 | Port: 8080
 """
 
-import json
-import logging
 import os
-from datetime import datetime
-import uuid
+import json
 import boto3
-from typing import Optional, Dict, Any, List
-
+import logging
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from strands import Agent
 from strands.models import BedrockModel
-from bedrock_agentcore import BedrockAgentCoreApp
+from strands.tools.mcp import MCPClient
+from strands_tools.mcp.streamable_http import StreamableHTTPTransport
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialize AgentCore app
-app = BedrockAgentCoreApp()
+REGION = "us-east-1"
+MODEL_ID = "amazon.nova-pro-v1:0"
+GATEWAY_URL = os.environ.get(
+    "AGENTCORE_GATEWAY_URL",
+    "https://rfpmcpgateway-2lhpouzcif.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
+)
 
-# AWS clients
-lambda_client = boto3.client('lambda', region_name=os.environ.get('REGION', 'us-east-1'))
-REGION = os.environ.get('REGION', 'us-east-1')
+SYSTEM_PROMPT = """
+You are a Supplier RFP Management Agent for Automotive and Manufacturing procurement.
 
+You MUST call these tools in EXACTLY this order every time.
+Do NOT simulate or hallucinate tool outputs.
+ALWAYS call the actual tool and use its real response.
 
-# ============================================================================
-# STRANDS AGENT TOOLS
-# ============================================================================
+MANDATORY TOOL EXECUTION ORDER:
+1. supplier_lookup_tool     — find suppliers by category from DynamoDB
+2. rfp_generator_tool       — generate RFP document, save to S3 + DynamoDB
+3. email_dispatch_tool      — send RFP via SES (mock mode)
+4. proposal_fetch_tool      — fetch proposals from DynamoDB
+5. scoring_tool             — score proposals: price 30%, quality 30%, delivery 20%, compliance 20%
+6. recommendation_tool      — rank top 2, set approval_required if flags exist
 
-def _tool_supplier_lookup(rfp_id: str, category: str) -> Dict[str, Any]:
-    """Tool: Lookup suppliers by category"""
-    logger.info(f"[Tool] supplier_lookup: {category}")
-    return invoke_lambda_tool("supplier_lookup_lambda", {
-        "rfp_id": rfp_id,
-        "category": category
-    })
-
-
-def _tool_rfp_generator(rfp_id: str, requirement: str, supplier_ids: List[str]) -> Dict[str, Any]:
-    """Tool: Generate RFP document"""
-    logger.info(f"[Tool] rfp_generator: {rfp_id}")
-    return invoke_lambda_tool("rfp_generator_lambda", {
-        "rfp_id": rfp_id,
-        "requirement": requirement,
-        "supplier_ids": supplier_ids
-    })
-
-
-def _tool_email_dispatch(rfp_id: str, supplier_emails: List[str]) -> Dict[str, Any]:
-    """Tool: Send RFP via email"""
-    logger.info(f"[Tool] email_dispatch: {len(supplier_emails)} recipients")
-    return invoke_lambda_tool("email_dispatch_lambda", {
-        "rfp_id": rfp_id,
-        "supplier_emails": supplier_emails
-    })
+RULES:
+- NEVER skip a tool call
+- NEVER make up supplier names, scores, or RFP IDs
+- ALWAYS use real tool output for next step input
+- If approval_required = True, ask human to confirm
+- Always show the real RFP ID from rfp_generator_tool output
+- Model = amazon.nova-pro-v1:0
+- Region = us-east-1
+"""
 
 
-def _tool_proposal_fetch(rfp_id: str, supplier_ids: List[str]) -> Dict[str, Any]:
-    """Tool: Fetch proposals"""
-    logger.info(f"[Tool] proposal_fetch: {len(supplier_ids)} suppliers")
-    return invoke_lambda_tool("proposal_fetch_lambda", {
-        "rfp_id": rfp_id,
-        "supplier_ids": supplier_ids
-    })
-
-
-def _tool_scoring(rfp_id: str, proposals: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Tool: Score proposals"""
-    logger.info(f"[Tool] scoring: {len(proposals)} proposals")
-    return invoke_lambda_tool("scoring_lambda", {
-        "rfp_id": rfp_id,
-        "proposals": proposals
-    })
-
-
-def _tool_recommendation(rfp_id: str, scored_proposals: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Tool: Generate recommendations"""
-    logger.info(f"[Tool] recommendation: {len(scored_proposals)} scored proposals")
-    return invoke_lambda_tool("recommendation_lambda", {
-        "rfp_id": rfp_id,
-        "scored_proposals": scored_proposals
-    })
-
-
-# ============================================================================
-# LAMBDA TOOL INVOCATION
-# ============================================================================
-
-def invoke_lambda_tool(function_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Invoke a Lambda tool function"""
+def get_workload_token():
+    """Get AgentCore workload identity token for Gateway auth."""
+    client = boto3.client("bedrock-agentcore", region_name=REGION)
     try:
-        logger.info(f"[Lambda] Invoking: {function_name}")
-        
-        response = lambda_client.invoke(
-            FunctionName=function_name,
-            InvocationType='RequestResponse',
-            Payload=json.dumps({"body": payload})
+        response = client.get_workload_access_token(
+            workloadIdentityArn=f"arn:aws:bedrock-agentcore:{REGION}:689050397154:workload-identity-directory/default/workload-identity/rfpsupplieragent-ODy0E42s5l"
         )
-        
-        response_payload = json.loads(response['Payload'].read())
-        
-        if response['StatusCode'] != 200:
-            logger.error(f"[Lambda] Error: {response['StatusCode']}")
-            return {"success": False, "error": response_payload}
-        
-        if isinstance(response_payload.get('body'), str):
-            body = json.loads(response_payload['body'])
-        else:
-            body = response_payload.get('body', response_payload)
-        
-        logger.info(f"[Lambda] ✓ {function_name} executed")
-        return body
-        
+        return response.get("accessToken")
     except Exception as e:
-        logger.error(f"[Lambda] Error: {str(e)}")
-        return {"success": False, "error": str(e)}
+        logger.error(f"Failed to get workload token: {e}")
+        return None
 
 
-# ============================================================================
-# STRANDS AGENT - RFP ORCHESTRATOR
-# ============================================================================
+def run_rfp_agent(message: str) -> dict:
+    """Run the RFP agent with real MCP Gateway tools."""
+    try:
+        token = get_workload_token()
 
-class RFPOrchestrator:
-    """Strands Agent-based RFP Orchestrator"""
-    
-    def __init__(self, user_id: str, session_id: Optional[str] = None):
-        self.user_id = user_id
-        self.session_id = session_id or str(uuid.uuid4())
-        
-        # Initialize Bedrock Model
-        model = BedrockModel(
-            model_id="amazon.nova-pro-v1:0",
-            region_name=REGION
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        transport = StreamableHTTPTransport(
+            url=GATEWAY_URL,
+            headers=headers
         )
-        
-        # Initialize Strands Agent
-        self.agent = Agent(
-            model=model
-        )
-        
-        logger.info(f"✓ Strands Agent initialized - Session: {self.session_id}")
-    
-    def process_rfp(self, cognito_token: str, user_message: str) -> Dict[str, Any]:
-        """
-        Process RFP request using Strands Agent
-        Agent orchestrates the entire workflow
-        """
-        try:
-            workflow_id = str(uuid.uuid4())
-            logger.info(f"\n{'='*80}")
-            logger.info(f"[WORKFLOW {workflow_id}] Starting RFP Processing")
-            logger.info(f"{'='*80}\n")
-            
-            # STEP 0: Identity validation
-            if not cognito_token or cognito_token == "invalid":
-                raise Exception("Unauthorized: Invalid token")
-            
-            user_email = "user@example.com"
-            logger.info(f"[Step 0] ✓ Identity validated")
-            
-            # Generate RFP ID
-            rfp_id = f"RFP-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
-            logger.info(f"[Step 0] ✓ RFP ID: {rfp_id}")
-            
-            # STEPS 1-8: Agent-driven workflow
-            system_prompt = f"""You are an RFP (Request for Proposal) procurement agent powered by Strands Agents.
 
-Your task: Process this procurement request and orchestrate the complete RFP workflow.
+        with MCPClient(transport=transport) as mcp_client:
+            tools = mcp_client.list_tools()
+            logger.info(f"Connected to Gateway. Tools available: {[t.name for t in tools]}")
 
-RFP ID: {rfp_id}
-Session: {self.session_id}
-User Request: {user_message}
-
-Workflow Steps:
-1. Parse the requirement (component, specs, quantity, deadline, category)
-2. Use supplier_lookup tool to find qualified suppliers
-3. Use rfp_generator tool to create RFP document
-4. Use email_dispatch tool to send RFP to suppliers
-5. Use proposal_fetch tool to retrieve proposals
-6. Use scoring tool to score all proposals
-7. Use recommendation tool to generate top recommendations
-8. Make approval decision (auto-approve if < $10K, otherwise escalate)
-
-For each step:
-- Call the appropriate tool
-- Analyze the results
-- Proceed to next step
-
-Provide a final summary with:
-- RFP ID and status
-- Selected suppliers
-- Risk assessment
-- Approval decision
-
-Start now."""
-            
-            logger.info("[Steps 1-8] Invoking Strands Agent for workflow")
-            
-            # Call Strands Agent with tools
-            agent_response = self.agent(
-                system_prompt,
-                tools=[
-                    {
-                        "name": "supplier_lookup",
-                        "description": "Find suppliers by category",
-                        "handler": _tool_supplier_lookup
-                    },
-                    {
-                        "name": "rfp_generator",
-                        "description": "Generate RFP document",
-                        "handler": _tool_rfp_generator
-                    },
-                    {
-                        "name": "email_dispatch",
-                        "description": "Send RFP to suppliers",
-                        "handler": _tool_email_dispatch
-                    },
-                    {
-                        "name": "proposal_fetch",
-                        "description": "Fetch proposals from suppliers",
-                        "handler": _tool_proposal_fetch
-                    },
-                    {
-                        "name": "scoring",
-                        "description": "Score proposals",
-                        "handler": _tool_scoring
-                    },
-                    {
-                        "name": "recommendation",
-                        "description": "Generate recommendations",
-                        "handler": _tool_recommendation
-                    }
-                ]
+            model = BedrockModel(
+                model_id=MODEL_ID,
+                region_name=REGION
             )
-            
-            agent_output = agent_response.content if hasattr(agent_response, 'content') else str(agent_response)
-            logger.info(f"[Agent] ✓ Workflow complete\n{agent_output[:500]}")
-            
-            # Build response
-            final_response = {
-                "workflow_status": "SUCCESS",
-                "workflow_id": workflow_id,
-                "user_email": user_email,
-                "rfp_id": rfp_id,
-                "session_id": self.session_id,
-                "timestamp": datetime.now().isoformat(),
-                "requirement": user_message,
-                "agent_output": agent_output
-            }
-            
-            logger.info(f"✓ WORKFLOW COMPLETE - RFP: {rfp_id}\n{'='*80}\n")
-            return final_response
-            
-        except Exception as e:
-            logger.error(f"❌ Workflow error: {str(e)}", exc_info=True)
+
+            agent = Agent(
+                model=model,
+                tools=tools,
+                system_prompt=SYSTEM_PROMPT
+            )
+
+            response = agent(message)
+
             return {
-                "error": str(e),
-                "workflow_status": "FAILED",
-                "session_id": self.session_id
+                "status": "success",
+                "response": str(response),
+                "tools_used": [t.name for t in tools]
             }
 
-
-# ============================================================================
-# AGENTCORE RUNTIME HANDLER
-# ============================================================================
-
-@app.entrypoint
-def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """AgentCore Runtime entrypoint"""
-    try:
-        user_message = payload.get("message", "")
-        cognito_token = payload.get("cognito_token", "valid-token")  # Auto-generate if missing
-        user_id = payload.get("user_id", "user-123")
-        session_id = payload.get("session_id", None)
-        
-        if not user_message:
-            return {
-                "status": "ERROR",
-                "error": "Missing message field",
-                "workflow_status": "FAILED"
-            }
-        
-        orchestrator = RFPOrchestrator(user_id=user_id, session_id=session_id)
-        result = orchestrator.process_rfp(cognito_token, user_message)
-        
-        return result
-        
     except Exception as e:
-        logger.error(f"AgentCore error: {str(e)}", exc_info=True)
+        logger.error(f"Agent error: {e}")
         return {
-            "status": "ERROR",
-            "error": str(e),
-            "workflow_status": "FAILED"
+            "status": "error",
+            "error": str(e)
         }
 
 
-# ============================================================================
-# HTTP SERVER FOR AGENTCORE RUNTIME
-# ============================================================================
-
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
 class RFPAgentHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for AgentCore Runtime"""
-    
+
     def do_POST(self):
-        """Handle POST requests to run the agent"""
-        content_length = int(self.headers.get('Content-Length', 0))
+        content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
-        
+
         try:
             data = json.loads(body)
-            logger.info(f"Received request: {data}")
-            
-            # Run the agent via the invoke function
-            response = invoke(data)
-            
+            message = data.get("message", "")
+
+            if not message:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(
+                    {"error": "message field required"}
+                ).encode())
+                return
+
+            logger.info(f"Processing RFP request: {message[:100]}")
+            result = run_rfp_agent(message)
+
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps(response, default=str).encode())
-            
+            self.wfile.write(json.dumps(result).encode())
+
         except Exception as e:
-            logger.error(f"Request error: {str(e)}", exc_info=True)
             self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({
-                "status": "error",
-                "error": str(e)
-            }).encode())
-    
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
+
     def do_GET(self):
-        """Handle GET requests - health check"""
         if self.path == "/health":
             self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"status": "healthy"}).encode())
         else:
             self.send_response(404)
-            self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({"error": "Not found"}).encode())
-    
+
     def log_message(self, format, *args):
-        """Override to use logger instead of stderr"""
-        logger.info(f"HTTP: {format % args}")
+        logger.info(f"HTTP {format % args}")
 
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    logger.info(f"Starting RFP Agent HTTP server on port {port}")
+    logger.info(f"Starting RFP Agent on port {port}")
+    logger.info(f"Gateway URL: {GATEWAY_URL}")
     server = HTTPServer(("0.0.0.0", port), RFPAgentHandler)
-    logger.info(f"✓ Server ready - listening on 0.0.0.0:{port}")
     server.serve_forever()
