@@ -43,18 +43,55 @@ ALWAYS call the actual tool and use its real response.
 
 MANDATORY TOOL EXECUTION ORDER:
 1. supplier_lookup      — find suppliers by category from DynamoDB
-2. rfp_generator        — generate RFP document, save to S3 + DynamoDB
-3. email_dispatch       — send RFP via SES (mock mode)
+2. rfp_generator        — generate .docx RFP document, save to S3 + DynamoDB
+3. email_dispatch       — send RFP to suppliers with Google Form URL + .docx link
 4. proposal_fetch       — fetch proposals from DynamoDB
 5. scoring              — score proposals: price 30%, quality 30%, delivery 20%, compliance 20%
-6. recommendation       — rank top 2, set approval_required if flags exist
+6. recommendation       — rank top 2, generate .docx report, set approval_required
+
+TOOL CHAINING RULES:
+- After calling supplier_lookup:
+  Extract supplier_ids and supplier_emails from the response.
+  Pass supplier_ids to rfp_generator.
+
+- After calling rfp_generator:
+  Extract docx_presigned_url from the response.
+  Extract google_form_url from the response (if present, otherwise use empty string).
+  Pass BOTH docx_presigned_url and google_form_url to email_dispatch.
+
+- After calling email_dispatch:
+  Extract supplier_ids from the rfp_generator response.
+  Pass them to proposal_fetch.
+
+- After calling proposal_fetch:
+  Extract proposals list from the response.
+  Pass to scoring.
+
+- After calling scoring:
+  Extract scored_proposals list from the response.
+  Pass to recommendation.
+
+- After calling recommendation:
+  Extract recommendation_docx_url from the response.
+  Extract approval_required flag from the response.
+  Include both in the final summary.
+
+FINAL SUMMARY MUST INCLUDE:
+- RFP ID
+- RFP Document link: docx_presigned_url (from rfp_generator)
+- Recommendation Report link: recommendation_docx_url (from recommendation)
+- Top 2 suppliers with scores and risk flags
+- Approval decision (approval_required = True/False)
+- If approval_required = True: state "HUMAN APPROVAL REQUIRED before contract award"
+- If approval_required = False: state "AUTO-APPROVED — contract awarded"
 
 RULES:
 - NEVER skip a tool call
-- NEVER make up supplier names, scores, or RFP IDs
+- NEVER make up supplier names, scores, RFP IDs, or URLs
 - ALWAYS use real tool output for next step input
-- If approval_required = True, state that human approval is required
 - Always show the real RFP ID from rfp_generator output
+- Model = amazon.nova-pro-v1:0
+- Region = us-east-1
 """
 
 # ============================================================================
@@ -138,19 +175,23 @@ def rfp_generator(rfp_id: str, requirement: str, supplier_ids: list) -> str:
 
 
 @tool
-def email_dispatch(rfp_id: str, supplier_emails: list) -> str:
-    """Send RFP documents to suppliers via SES (mock mode enabled).
+def email_dispatch(rfp_id: str, supplier_emails: list, google_form_url: str = "", docx_presigned_url: str = "") -> str:
+    """Send RFP documents to suppliers via SES with Google Form URL and .docx link (mock mode enabled).
     
     Args:
         rfp_id: The RFP identifier to dispatch
         supplier_emails: List of supplier email addresses
+        google_form_url: Google Form URL for proposal submission (from rfp_generator response)
+        docx_presigned_url: Presigned S3 URL for the RFP .docx document (from rfp_generator response)
     
     Returns:
         JSON string confirming dispatch status
     """
     result = invoke_lambda(LAMBDA_FUNCTIONS["email_dispatch"], {
         "rfp_id": rfp_id,
-        "supplier_emails": supplier_emails
+        "supplier_emails": supplier_emails,
+        "google_form_url": google_form_url,
+        "docx_presigned_url": docx_presigned_url
     })
     return json.dumps(result)
 
