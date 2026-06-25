@@ -61,8 +61,9 @@ def handler(event, context):
                 # Calculate normalized component scores (0-100)
                 price_score = _calculate_price_score(proposal.get("price", 2000), max_price)
                 quality_score = float(proposal.get("quality_score", 80))
-                delivery_score = _calculate_delivery_score(proposal.get("delivery_time_days", 30))
-                compliance_score = 90.0 if proposal.get("certifications") else 60.0
+                delivery_days = proposal.get("lead_time_days", proposal.get("delivery_time_days", 30))
+                delivery_score = _calculate_delivery_score(delivery_days)
+                compliance_score = 90.0 if proposal.get("compliance_docs", proposal.get("certifications")) else 60.0
                 
                 # Calculate total weighted score
                 total_score = (
@@ -81,7 +82,7 @@ def handler(event, context):
                     "supplier_id": proposal.get("supplier_id", ""),
                     "price": float(proposal.get("price", 0)),
                     "quality": round(quality_score, 1),
-                    "delivery_days": int(proposal.get("delivery_time_days", 0)),
+                    "delivery_days": int(delivery_days),
                     "compliance": "Yes" if proposal.get("certifications") else "No",
                     "score_breakdown": {
                         "price_score": round(price_score, 1),

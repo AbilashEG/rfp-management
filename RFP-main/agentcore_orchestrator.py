@@ -219,12 +219,7 @@ def run_rfp_agent(message: str) -> dict:
         model = BedrockModel(
             model_id=MODEL_ID,
             region_name=REGION,
-            max_tokens=1024,
-            additional_request_fields={
-                "inferenceConfig": {
-                    "maxTokens": 1024
-                }
-            }
+            max_tokens=1024
         )
         logger.info("✓ BedrockModel initialized")
 
