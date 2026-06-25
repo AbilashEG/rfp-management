@@ -218,8 +218,10 @@ def run_rfp_agent(message: str) -> dict:
         logger.info("Initializing BedrockModel...")
         model = BedrockModel(
             model_id=MODEL_ID,
-            region_name=REGION,
-            max_tokens=1024
+            region_name=REGION
+            # DO NOT set max_tokens here.
+            # max_tokens truncates tool-call JSON mid-generation → modelStreamErrorException.
+            # Context size is already controlled by slim Lambda responses.
         )
         logger.info("✓ BedrockModel initialized")
 
