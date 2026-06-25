@@ -35,63 +35,18 @@ MODEL_ID = "amazon.nova-pro-v1:0"
 PORT = int(os.environ.get("PORT", 8080))
 
 SYSTEM_PROMPT = """
-You are a Supplier RFP Management Agent for Automotive and Manufacturing procurement.
+You are a Supplier RFP Management Agent for procurement.
+Call all 6 tools in this exact order using real outputs only:
 
-You MUST call these tools in EXACTLY this order every time.
-Do NOT simulate or hallucinate tool outputs.
-ALWAYS call the actual tool and use its real response.
+1. supplier_lookup(category, rfp_id) → get supplier_ids and supplier_emails
+2. rfp_generator(rfp_id, requirement, supplier_ids) → get docx_url
+3. email_dispatch(rfp_id, supplier_emails, docx_presigned_url) → confirm sent
+4. proposal_fetch(rfp_id, supplier_ids) → get proposals list
+5. scoring(rfp_id, proposals) → get scored list
+6. recommendation(rfp_id, scored) → get top2, approval_required, report_url
 
-MANDATORY TOOL EXECUTION ORDER:
-1. supplier_lookup      — find suppliers by category from DynamoDB
-2. rfp_generator        — generate .docx RFP document, save to S3 + DynamoDB
-3. email_dispatch       — send RFP to suppliers with Google Form URL + .docx link
-4. proposal_fetch       — fetch proposals from DynamoDB
-5. scoring              — score proposals: price 30%, quality 30%, delivery 20%, compliance 20%
-6. recommendation       — rank top 2, generate .docx report, set approval_required
-
-TOOL CHAINING RULES:
-- After calling supplier_lookup:
-  Extract supplier_ids and supplier_emails from the response.
-  Pass supplier_ids to rfp_generator.
-
-- After calling rfp_generator:
-  Extract docx_presigned_url from the response.
-  Extract google_form_url from the response (if present, otherwise use empty string).
-  Pass BOTH docx_presigned_url and google_form_url to email_dispatch.
-
-- After calling email_dispatch:
-  Extract supplier_ids from the rfp_generator response.
-  Pass them to proposal_fetch.
-
-- After calling proposal_fetch:
-  Extract proposals list from the response.
-  Pass to scoring.
-
-- After calling scoring:
-  Extract scored_proposals list from the response.
-  Pass to recommendation.
-
-- After calling recommendation:
-  Extract recommendation_docx_url from the response.
-  Extract approval_required flag from the response.
-  Include both in the final summary.
-
-FINAL SUMMARY MUST INCLUDE:
-- RFP ID
-- RFP Document link: docx_presigned_url (from rfp_generator)
-- Recommendation Report link: recommendation_docx_url (from recommendation)
-- Top 2 suppliers with scores and risk flags
-- Approval decision (approval_required = True/False)
-- If approval_required = True: state "HUMAN APPROVAL REQUIRED before contract award"
-- If approval_required = False: state "AUTO-APPROVED — contract awarded"
-
-RULES:
-- NEVER skip a tool call
-- NEVER make up supplier names, scores, RFP IDs, or URLs
-- ALWAYS use real tool output for next step input
-- Always show the real RFP ID from rfp_generator output
-- Model = amazon.nova-pro-v1:0
-- Region = us-east-1
+Final reply: RFP ID, top 2 suppliers with scores, approval decision, docx_url, report_url.
+Never skip a tool. Never fabricate data.
 """
 
 # ============================================================================
@@ -223,13 +178,14 @@ def scoring(rfp_id: str, proposals: list) -> str:
         proposals: List of proposal objects to score
     
     Returns:
-        JSON string with scored proposals and individual scores
+        JSON string with scored list containing supplier_id, total_score, risk_flags
     """
     result = invoke_lambda(LAMBDA_FUNCTIONS["scoring"], {
         "rfp_id": rfp_id,
         "proposals": proposals
     })
-    return json.dumps(result)
+    # Return the scored list directly for recommendation
+    return json.dumps(result.get("scored", result))
 
 
 @tool
@@ -238,16 +194,20 @@ def recommendation(rfp_id: str, scored_proposals: list) -> str:
     
     Args:
         rfp_id: The RFP identifier
-        scored_proposals: List of scored proposal objects
+        scored_proposals: List of scored proposals with supplier_id, total_score, risk_flags
     
     Returns:
-        JSON string with top recommendations, risk flags, and approval_required flag
+        JSON string with top2, approval_required, report_url
     """
     result = invoke_lambda(LAMBDA_FUNCTIONS["recommendation"], {
         "rfp_id": rfp_id,
         "scored_proposals": scored_proposals
     })
-    return json.dumps(result)
+    return json.dumps({
+        "top2":              result.get("recommendations", []),
+        "approval_required": result.get("approval_required", True),
+        "report_url":        result.get("recommendation_docx_url", "")
+    })
 
 
 # ============================================================================

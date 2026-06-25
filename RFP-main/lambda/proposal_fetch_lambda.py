@@ -71,15 +71,23 @@ def handler(event, context):
                 logger.warning(f"[Tool 4] ⚠️ Failed to process proposal: {str(e)}")
                 continue
         
+        # Slim each proposal to only fields scoring needs
+        slim_proposals = []
+        for p in proposals:
+            slim_proposals.append({
+                "proposal_id":       p.get("proposal_id", ""),
+                "supplier_id":       p.get("supplier_id", ""),
+                "price":             p.get("price", 0),
+                "delivery_time_days": p.get("delivery_time_days", 30),
+                "quality_score":     p.get("quality_score", 80),
+                "certifications":    p.get("certifications", [])
+            })
+
         output = {
-            "success": True,
-            "proposal_count": len(proposals),
-            "proposals": proposals,
-            "timestamp": datetime.now().isoformat()
+            "proposals": slim_proposals
         }
         
-        logger.info(f"[Tool 4] ✅ Retrieved {len(proposals)} proposals")
-        
+        logger.info(f"[Tool 4] ✅ Retrieved {len(slim_proposals)} proposals")
         return _response(200, output)
         
     except Exception as e:

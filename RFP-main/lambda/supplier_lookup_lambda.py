@@ -72,14 +72,12 @@ def handler(event, context):
         suppliers = sorted(suppliers, key=lambda x: x["rating"], reverse=True)[:5]
         
         result = {
-            "success": True,
-            "supplier_count": len(suppliers),
-            "suppliers": suppliers,
-            "timestamp": datetime.now().isoformat()
+            "supplier_ids": [s["supplier_id"] for s in suppliers],
+            "supplier_emails": [s["contact_email"] for s in suppliers],
+            "count": len(suppliers)
         }
         
-        logger.info(f"[Tool 1] ✅ Found {result['supplier_count']} top suppliers")
-        
+        logger.info(f"[Tool 1] ✅ Found {result['count']} suppliers")
         return _response(200, result)
         
     except Exception as e:

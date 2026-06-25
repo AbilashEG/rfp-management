@@ -104,16 +104,23 @@ def handler(event, context):
         
         # Sort by score (highest first)
         scored_proposals = sorted(scored_proposals, key=lambda x: x["total_score"], reverse=True)
-        
+
+        # Slim to only fields recommendation needs
+        slim_scored = [
+            {
+                "supplier_id":  s["supplier_id"],
+                "total_score":  s["total_score"],
+                "risk_flags":   s["risk_flags"],
+                "score_breakdown": s["score_breakdown"]
+            }
+            for s in scored_proposals
+        ]
+
         result = {
-            "success": True,
-            "scored_count": len(scored_proposals),
-            "scored_proposals": scored_proposals,
-            "timestamp": datetime.now().isoformat()
+            "scored": slim_scored
         }
         
-        logger.info(f"[Tool 5] ✅ Scored {result['scored_count']} proposals")
-        
+        logger.info(f"[Tool 5] ✅ Scored {len(slim_scored)} proposals")
         return _response(200, result)
         
     except Exception as e:

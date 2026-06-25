@@ -97,14 +97,8 @@ def handler(event, context):
             })
 
         output = {
-            "success":          True,
-            "rfp_id":           rfp_id,
-            "email_count":      len(dispatch_results),
-            "dispatch_results": dispatch_results,
-            "google_form_url":  google_form_url,
-            "docx_presigned_url": docx_presigned_url,
-            "mock_mode":        SES_MOCK_MODE,
-            "timestamp":        datetime.now().isoformat()
+            "success": True,
+            "sent": len(dispatch_results)
         }
 
         logger.info(f"[Tool 3] ✅ Dispatched to {len(dispatch_results)} recipients [MOCK={SES_MOCK_MODE}]")
