@@ -102,25 +102,23 @@ def handler(event, context):
                 logger.warning(f"[Tool 5] ⚠️ Failed to score proposal: {str(e)}")
                 continue
         
-        # Sort by score (highest first)
+        # Sort by score descending, return minimum fields only
         scored_proposals = sorted(scored_proposals, key=lambda x: x["total_score"], reverse=True)
 
-        # Slim to only fields recommendation needs
-        slim_scored = [
-            {
-                "supplier_id":  s["supplier_id"],
-                "total_score":  s["total_score"],
-                "risk_flags":   s["risk_flags"],
-                "score_breakdown": s["score_breakdown"]
-            }
-            for s in scored_proposals
-        ]
-
         result = {
-            "scored": slim_scored
+            "status": "success",
+            "count": len(scored_proposals),
+            "scored": [
+                {
+                    "supplier_id": s["supplier_id"],
+                    "total_score": s["total_score"],
+                    "flags":       s["risk_flags"]
+                }
+                for s in scored_proposals
+            ]
         }
-        
-        logger.info(f"[Tool 5] ✅ Scored {len(slim_scored)} proposals")
+
+        logger.info(f"[Tool 5] ✅ Scored {result['count']} proposals")
         return _response(200, result)
         
     except Exception as e:

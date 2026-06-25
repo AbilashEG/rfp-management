@@ -71,22 +71,25 @@ def handler(event, context):
                 logger.warning(f"[Tool 4] ⚠️ Failed to process proposal: {str(e)}")
                 continue
         
-        # Slim each proposal to only fields scoring needs
-        slim_proposals = []
-        for p in proposals:
-            slim_proposals.append({
+        # Slim to minimum fields only
+        slim_proposals = [
+            {
                 "proposal_id":       p.get("proposal_id", ""),
                 "supplier_id":       p.get("supplier_id", ""),
                 "price":             p.get("price", 0),
-                "delivery_time_days": p.get("delivery_time_days", 30),
+                "lead_time_days":    p.get("delivery_time_days", 30),
                 "quality_score":     p.get("quality_score", 80),
-                "certifications":    p.get("certifications", [])
-            })
+                "compliance_docs":   p.get("certifications", [])
+            }
+            for p in proposals
+        ]
 
         output = {
+            "status": "success",
+            "count": len(slim_proposals),
             "proposals": slim_proposals
         }
-        
+
         logger.info(f"[Tool 4] ✅ Retrieved {len(slim_proposals)} proposals")
         return _response(200, output)
         

@@ -111,9 +111,9 @@ def handler(event, context):
             logger.warning(f"[Tool 2] ⚠️ DynamoDB save failed: {e}")
 
         result = {
+            "status": "success",
             "rfp_id": rfp_id,
-            "docx_presigned_url": presigned_url,
-            "supplier_ids": supplier_ids
+            "docx_url": presigned_url
         }
 
         logger.info(f"[Tool 2] ✅ RFP .docx generated: {rfp_id}")

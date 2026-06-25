@@ -35,18 +35,17 @@ MODEL_ID = "amazon.nova-pro-v1:0"
 PORT = int(os.environ.get("PORT", 8080))
 
 SYSTEM_PROMPT = """
-You are a Supplier RFP Management Agent for procurement.
-Call all 6 tools in this exact order using real outputs only:
+You are an RFP procurement agent.
 
-1. supplier_lookup(category, rfp_id) → get supplier_ids and supplier_emails
-2. rfp_generator(rfp_id, requirement, supplier_ids) → get docx_url
-3. email_dispatch(rfp_id, supplier_emails, docx_presigned_url) → confirm sent
-4. proposal_fetch(rfp_id, supplier_ids) → get proposals list
-5. scoring(rfp_id, proposals) → get scored list
-6. recommendation(rfp_id, scored) → get top2, approval_required, report_url
+Run these 6 tools in order using outputs from each as inputs to next:
+1. supplier_lookup(category, rfp_id)
+2. rfp_generator(rfp_id, requirement, supplier_ids)
+3. email_dispatch(rfp_id, supplier_emails, docx_presigned_url)
+4. proposal_fetch(rfp_id, supplier_ids)
+5. scoring(rfp_id, proposals)
+6. recommendation(rfp_id, scored_proposals)
 
-Final reply: RFP ID, top 2 suppliers with scores, approval decision, docx_url, report_url.
-Never skip a tool. Never fabricate data.
+Return: rfp_id, top 2 suppliers with scores, approval_required status.
 """
 
 # ============================================================================
@@ -187,7 +186,6 @@ def scoring(rfp_id: str, proposals: list) -> str:
     # Return the scored list directly for recommendation
     return json.dumps(result.get("scored", result))
 
-
 @tool
 def recommendation(rfp_id: str, scored_proposals: list) -> str:
     """Generate top 2 supplier recommendations with risk flags and approval decision.
@@ -220,7 +218,13 @@ def run_rfp_agent(message: str) -> dict:
         logger.info("Initializing BedrockModel...")
         model = BedrockModel(
             model_id=MODEL_ID,
-            region_name=REGION
+            region_name=REGION,
+            max_tokens=1024,
+            additional_request_fields={
+                "inferenceConfig": {
+                    "maxTokens": 1024
+                }
+            }
         )
         logger.info("✓ BedrockModel initialized")
 

@@ -72,11 +72,18 @@ def handler(event, context):
         suppliers = sorted(suppliers, key=lambda x: x["rating"], reverse=True)[:5]
         
         result = {
-            "supplier_ids": [s["supplier_id"] for s in suppliers],
-            "supplier_emails": [s["contact_email"] for s in suppliers],
-            "count": len(suppliers)
+            "status": "success",
+            "count": len(suppliers),
+            "suppliers": [
+                {
+                    "supplier_id": s["supplier_id"],
+                    "name": s["name"],
+                    "rating": s["rating"]
+                }
+                for s in suppliers
+            ]
         }
-        
+
         logger.info(f"[Tool 1] ✅ Found {result['count']} suppliers")
         return _response(200, result)
         

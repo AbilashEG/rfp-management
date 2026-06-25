@@ -97,7 +97,7 @@ def handler(event, context):
             })
 
         output = {
-            "success": True,
+            "status": "success",
             "sent": len(dispatch_results)
         }
 

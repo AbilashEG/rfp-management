@@ -124,14 +124,19 @@ def handler(event, context):
         _update_request_status(rfp_id, approval_required, top_2)
 
         result = {
-            "success":                  True,
-            "rfp_id":                   rfp_id,
-            "recommendation_count":     len(recommendations),
-            "recommendations":          recommendations,
-            "approval_required":        approval_required,
-            "all_risk_flags":           list(set(all_flags)),
-            "recommendation_docx_url":  rec_url,
-            "timestamp":                datetime.utcnow().isoformat()
+            "status":           "success",
+            "top_2":            [
+                {
+                    "rank":          rec["rank"],
+                    "supplier_id":   rec["supplier_id"],
+                    "supplier_name": rec["supplier_name"],
+                    "total_score":   rec["total_score"],
+                    "flags":         rec["flags"]
+                }
+                for rec in recommendations
+            ],
+            "approval_required": approval_required,
+            "rec_docx_url":      rec_url
         }
 
         logger.info(
