@@ -113,7 +113,8 @@ def handler(event, context):
                 {
                     "supplier_id": s["supplier_id"],
                     "total_score": s["total_score"],
-                    "flags":       s["risk_flags"]
+                    "flags":       s["risk_flags"],
+                    "score_breakdown": s["score_breakdown"]
                 }
                 for s in scored_proposals
             ]
