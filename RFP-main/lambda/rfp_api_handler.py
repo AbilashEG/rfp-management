@@ -172,6 +172,7 @@ def handle_submit_rfp(event: dict) -> dict:
         # Save initial record to DynamoDB
         table = dynamodb.Table(REQUESTS_TABLE)
         table.put_item(Item={
+            "rfp_id":      rfp_id,
             "RequestID":   rfp_id,
             "Status":      "processing",
             "Requirement": message,
@@ -218,22 +219,25 @@ def handle_get_rfp(rfp_id: str) -> dict:
         logger.info(f"[get_rfp] Reading: {rfp_id}")
 
         table = dynamodb.Table(REQUESTS_TABLE)
-        result = table.get_item(Key={"RequestID": rfp_id})
+        # Try both possible key names
+        result = table.get_item(Key={"rfp_id": rfp_id})
         item = result.get("Item")
+        if not item:
+            result = table.get_item(Key={"RequestID": rfp_id})
+            item = result.get("Item")
 
         if not item:
             return cors_response(404, {"error": f"RFP {rfp_id} not found"})
 
         return cors_response(200, {
-            "rfp_id":              item.get("RequestID", rfp_id),
-            "status":              item.get("Status", "unknown"),
-            "requirement":         item.get("Requirement", ""),
+            "rfp_id":              item.get("rfp_id", item.get("RequestID", rfp_id)),
+            "status":              item.get("Status", item.get("status", "unknown")),
+            "requirement":         item.get("Requirement", item.get("requirement", "")),
             "awarded_supplier":    item.get("awarded_supplier", None),
             "awarded_at":          item.get("awarded_at", None),
-            "docx_presigned_url":  item.get("DocxPresignedUrl", ""),
-            "google_form_url":     item.get("GoogleFormUrl", ""),
-            "created_at":          item.get("CreatedAt", ""),
-            "supplier_count":      item.get("SupplierCount", 0),
+            "agent_response":      item.get("agent_response", ""),
+            "docx_presigned_url":  item.get("DocxPresignedUrl", item.get("docx_presigned_url", "")),
+            "created_at":          item.get("CreatedAt", item.get("created_at", "")),
         })
 
     except Exception as e:
