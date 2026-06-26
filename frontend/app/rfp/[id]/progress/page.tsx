@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Copy, Check, ArrowRight } from 'lucide-react'
@@ -17,12 +17,12 @@ interface Step {
   timestamp?: string
 }
 
-const INITIAL_STEPS: Step[] = [
+const STEPS: Step[] = [
   { id: 1, title: 'Supplier Discovery', description: 'Searching supplier database by category and rating', status: 'pending' },
   { id: 2, title: 'RFP Document Created', description: 'Generating Word document with full specifications', status: 'pending' },
   { id: 3, title: 'Emails Dispatched', description: 'Sending RFP to qualified suppliers via SES', status: 'pending' },
   { id: 4, title: 'Proposals Collected', description: 'Retrieving supplier proposals from database', status: 'pending' },
-  { id: 5, title: 'Proposals Scored', description: 'Applying weighted evaluation: Price 30%, Quality 30%, Delivery 20%, Compliance 20%', status: 'pending' },
+  { id: 5, title: 'Proposals Scored', description: 'Price 30%, Quality 30%, Delivery 20%, Compliance 20%', status: 'pending' },
   { id: 6, title: 'Recommendation Ready', description: 'Top 2 suppliers identified and ranked', status: 'pending' },
 ]
 
@@ -34,49 +34,82 @@ export default function ProgressPage() {
   const params = useParams()
   const router = useRouter()
   const rfpId = params.id as string
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
-  const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS)
+  const [steps, setSteps] = useState<Step[]>(STEPS.map(s => ({ ...s })))
   const [copied, setCopied] = useState(false)
   const [complete, setComplete] = useState(false)
   const [suppliers, setSuppliers] = useState<string[]>([])
+  const [agentResponse, setAgentResponse] = useState('')
+  const pollRef = useRef<NodeJS.Timeout | null>(null)
+  const stepTimerRef = useRef<NodeJS.Timeout[]>([])
+  const completedRef = useRef(false)
 
-  const activeStep = steps.findIndex(s => s.status === 'active')
-  const completedCount = steps.filter(s => s.status === 'complete').length
-
-  // Simulate progress by polling
+  // Simulate visual step progression
   useEffect(() => {
     let current = 0
-
     const advance = () => {
+      if (completedRef.current) return
       setSteps(prev => {
         const next = [...prev]
-        if (current < next.length) {
-          if (current > 0) {
-            next[current - 1] = { ...next[current - 1], status: 'complete', timestamp: getTimestamp() }
-          }
-          next[current] = { ...next[current], status: 'active' }
-          // Add supplier when step 1 completes
-          if (current === 0) {
-            setTimeout(() => setSuppliers(['SUP005', 'SUP003', 'SUP007']), 400)
-          }
-          current++
-        } else {
-          // Mark last step complete
-          next[next.length - 1] = { ...next[next.length - 1], status: 'complete', timestamp: getTimestamp() }
-          setComplete(true)
+        if (current > 0 && current <= next.length) {
+          next[current - 1] = { ...next[current - 1], status: 'complete', timestamp: getTimestamp() }
         }
+        if (current < next.length) {
+          next[current] = { ...next[current], status: 'active' }
+          if (current === 0) {
+            setTimeout(() => setSuppliers(['SUP005', 'SUP003', 'SUP007']), 500)
+          }
+        }
+        current++
         return next
       })
     }
 
-    // Step through with varying delays
-    const delays = [600, 1800, 3200, 4800, 6400, 8200, 9600]
-    const timers = delays.map((delay, i) =>
-      setTimeout(advance, delay)
-    )
-
-    return () => timers.forEach(clearTimeout)
+    const delays = [500, 8000, 16000, 24000, 35000, 48000]
+    stepTimerRef.current = delays.map((d) => setTimeout(advance, d))
+    return () => stepTimerRef.current.forEach(clearTimeout)
   }, [])
+
+  // Poll real API for completion
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API_URL}/rfp/${rfpId}`)
+        const data = await res.json()
+
+        if (data.status === 'complete' || data.status === 'error') {
+          if (!completedRef.current) {
+            completedRef.current = true
+
+            // Mark all steps complete immediately
+            setSteps(prev => prev.map(s => ({
+              ...s,
+              status: 'complete' as StepStatus,
+              timestamp: s.timestamp || getTimestamp()
+            })))
+            setAgentResponse(data.agent_response || '')
+            setComplete(true)
+
+            if (pollRef.current) clearInterval(pollRef.current)
+          }
+        }
+      } catch (err) {
+        console.error('Poll error:', err)
+      }
+    }
+
+    // Start polling after 10 seconds
+    const startTimer = setTimeout(() => {
+      poll() // immediate first poll
+      pollRef.current = setInterval(poll, 5000)
+    }, 10000)
+
+    return () => {
+      clearTimeout(startTimer)
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+  }, [rfpId, API_URL])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(rfpId)
@@ -84,11 +117,13 @@ export default function ProgressPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const completedCount = steps.filter(s => s.status === 'complete').length
+
   return (
     <div className="min-h-screen bg-[#EDE8DC]">
       <Navigation />
-
       <main className="max-w-6xl mx-auto px-6 py-10">
+
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
@@ -100,36 +135,23 @@ export default function ProgressPage() {
             <p className="text-xs tracking-[0.15em] uppercase text-[#7A7265] mb-1">RFP Process</p>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-mono font-medium text-[#2C2C2C]">{rfpId}</h1>
-              <button
-                onClick={handleCopy}
-                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[#D4CBB8]/50 transition-colors"
-              >
-                {copied
-                  ? <Check className="w-3.5 h-3.5 text-[#5C8A4A]" />
-                  : <Copy className="w-3.5 h-3.5 text-[#7A7265]" />
-                }
+              <button onClick={handleCopy} className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-[#D4CBB8]/50 transition-colors">
+                {copied ? <Check className="w-3.5 h-3.5 text-[#5C8A4A]" /> : <Copy className="w-3.5 h-3.5 text-[#7A7265]" />}
               </button>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             {complete ? (
-              <span className="px-3 py-1 bg-[#5C8A4A]/10 border border-[#5C8A4A]/20 text-[#5C8A4A] text-xs font-medium rounded-full">
-                Complete
-              </span>
+              <span className="px-3 py-1 bg-[#5C8A4A]/10 border border-[#5C8A4A]/20 text-[#5C8A4A] text-xs font-medium rounded-full">Complete</span>
             ) : (
-              <span className="px-3 py-1 bg-[#E8A020]/10 border border-[#E8A020]/20 text-[#E8A020] text-xs font-medium rounded-full animate-pulse">
-                In Progress
-              </span>
+              <span className="px-3 py-1 bg-[#E8A020]/10 border border-[#E8A020]/20 text-[#E8A020] text-xs font-medium rounded-full animate-pulse">In Progress</span>
             )}
-            <span className="text-xs text-[#7A7265]">
-              {completedCount} / {steps.length} steps
-            </span>
+            <span className="text-xs text-[#7A7265]">{completedCount} / {steps.length} steps</span>
           </div>
         </motion.div>
 
         <div className="grid grid-cols-3 gap-6">
-          {/* Steps — left 2 cols */}
+          {/* Steps */}
           <div className="col-span-2 flex flex-col gap-2">
             {steps.map((step, i) => (
               <StepItem
@@ -143,7 +165,6 @@ export default function ProgressPage() {
               />
             ))}
 
-            {/* Complete banner */}
             <AnimatePresence>
               {complete && (
                 <motion.div
@@ -168,18 +189,13 @@ export default function ProgressPage() {
             </AnimatePresence>
           </div>
 
-          {/* Suppliers panel — right col */}
+          {/* Suppliers panel */}
           <div>
-            <p className="text-xs tracking-[0.15em] uppercase text-[#7A7265] font-medium mb-3">
-              Suppliers Found
-            </p>
+            <p className="text-xs tracking-[0.15em] uppercase text-[#7A7265] font-medium mb-3">Suppliers Found</p>
             <div className="flex flex-col gap-2">
               <AnimatePresence>
                 {suppliers.length === 0 ? (
-                  // Skeleton
-                  [1, 2, 3].map(i => (
-                    <div key={i} className="h-14 rounded-xl shimmer" />
-                  ))
+                  [1, 2, 3].map(i => <div key={i} className="h-14 rounded-xl shimmer" />)
                 ) : (
                   suppliers.map((sup, i) => (
                     <motion.div
@@ -195,10 +211,7 @@ export default function ProgressPage() {
                       </div>
                       <div className="flex items-center gap-0.5 mt-1">
                         {[1, 2, 3, 4, 5].map(s => (
-                          <div
-                            key={s}
-                            className={`w-2 h-2 rounded-full ${s <= 4 ? 'bg-[#E8A020]' : 'bg-[#D4CBB8]'}`}
-                          />
+                          <div key={s} className={`w-2 h-2 rounded-full ${s <= 4 ? 'bg-[#E8A020]' : 'bg-[#D4CBB8]'}`} />
                         ))}
                         <span className="text-xs text-[#7A7265] ml-1">4.0</span>
                       </div>
