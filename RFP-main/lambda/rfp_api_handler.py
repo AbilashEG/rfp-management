@@ -115,9 +115,9 @@ def run_agent_async(event: dict) -> dict:
         status        = result.get("status", "error")
         response_text = result.get("response", "")
 
-        # Update DynamoDB with result
+        # Update DynamoDB with result using correct key name
         table.update_item(
-            Key={"RequestID": rfp_id},
+            Key={"rfp_id": rfp_id},
             UpdateExpression=(
                 "SET #s = :s, agent_rfp_id = :aid, "
                 "agent_response = :r, completed_at = :at"
@@ -137,7 +137,7 @@ def run_agent_async(event: dict) -> dict:
     except Exception as e:
         logger.error(f"[run_agent_async] Error: {e}", exc_info=True)
         table.update_item(
-            Key={"RequestID": rfp_id},
+            Key={"rfp_id": rfp_id},
             UpdateExpression="SET #s = :s, error_msg = :e",
             ExpressionAttributeNames={"#s": "Status"},
             ExpressionAttributeValues={":s": "error", ":e": str(e)}
@@ -173,7 +173,6 @@ def handle_submit_rfp(event: dict) -> dict:
         table = dynamodb.Table(REQUESTS_TABLE)
         table.put_item(Item={
             "rfp_id":      rfp_id,
-            "RequestID":   rfp_id,
             "Status":      "processing",
             "Requirement": message,
             "CreatedAt":   now,
@@ -219,12 +218,8 @@ def handle_get_rfp(rfp_id: str) -> dict:
         logger.info(f"[get_rfp] Reading: {rfp_id}")
 
         table = dynamodb.Table(REQUESTS_TABLE)
-        # Try both possible key names
         result = table.get_item(Key={"rfp_id": rfp_id})
         item = result.get("Item")
-        if not item:
-            result = table.get_item(Key={"RequestID": rfp_id})
-            item = result.get("Item")
 
         if not item:
             return cors_response(404, {"error": f"RFP {rfp_id} not found"})
