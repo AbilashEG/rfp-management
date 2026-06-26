@@ -363,30 +363,28 @@ def handle_get_docs(rfp_id: str) -> dict:
 def invoke_agentcore(message: str) -> dict:
     """
     Invokes AgentCore Runtime with the user message.
-    Decodes and parses the streaming response.
+    boto3 handles binary serialization — do NOT base64 encode manually.
     """
     try:
-        payload = json.dumps({"message": message})
-        payload_b64 = base64.b64encode(payload.encode()).decode()
+        # Pass payload as raw bytes — boto3 handles encoding internally
+        payload_bytes = json.dumps({"message": message}).encode("utf-8")
 
         logger.info(f"[agentcore] Invoking runtime: {AGENT_RUNTIME_ARN}")
 
         response = agentcore.invoke_agent_runtime(
             agentRuntimeArn=AGENT_RUNTIME_ARN,
-            payload=payload_b64
+            payload=payload_bytes
         )
 
         # Read response body
         response_body = response.get("response", b"")
         if hasattr(response_body, "read"):
             response_body = response_body.read()
-
         if isinstance(response_body, bytes):
             response_body = response_body.decode("utf-8")
 
         logger.info(f"[agentcore] Raw response: {response_body[:300]}")
 
-        # Parse JSON response
         result = json.loads(response_body)
         logger.info(f"[agentcore] ✅ Status: {result.get('status')} | RFP: {result.get('rfp_id')}")
         return result
