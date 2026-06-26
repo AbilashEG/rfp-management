@@ -1,20 +1,24 @@
 """
 Strands Agents - Tool 3: Email Dispatch Lambda
-Step 4: Send RFP to suppliers via SES with Google Form URL + RFP .docx link
-SES mock mode = True always
+Step 4: Send RFP to suppliers via SES with RFP .docx link
+SES_MOCK_MODE = False → sends real emails from verified address
 """
 
 import json
 import logging
 import os
+import boto3
 from datetime import datetime
 from typing import Dict, Any, List
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# SES mock mode — always True, never send real emails
-SES_MOCK_MODE = True
+REGION        = os.environ.get("REGION", "us-east-1")
+SES_MOCK_MODE = os.environ.get("SES_MOCK_MODE", "false").lower() == "true"
+FROM_EMAIL    = os.environ.get("FROM_EMAIL", "abilashgomathi7@gmail.com")
+
+ses = boto3.client("ses", region_name=REGION)
 
 
 def handler(event, context):
@@ -81,12 +85,33 @@ def handler(event, context):
             )
 
             if SES_MOCK_MODE:
-                # Log email content but do not send
                 logger.info(f"[Tool 3] [MOCK] Email to: {email}\n{email_body}")
                 status = "MockSent"
             else:
-                # Real SES send (not used — mock mode always on)
-                status = "Sent"
+                # Send real SES email
+                try:
+                    ses.send_email(
+                        Source=FROM_EMAIL,
+                        Destination={"ToAddresses": [FROM_EMAIL]},  # Demo: send to verified address
+                        Message={
+                            "Subject": {
+                                "Data": f"RFP Invitation: {rfp_id} — {component_name}",
+                                "Charset": "UTF-8"
+                            },
+                            "Body": {
+                                "Text": {
+                                    "Data": email_body,
+                                    "Charset": "UTF-8"
+                                }
+                            }
+                        },
+                        ReplyToAddresses=[FROM_EMAIL]
+                    )
+                    logger.info(f"[Tool 3] ✅ Real email sent to: {FROM_EMAIL} (on behalf of {email})")
+                    status = "Sent"
+                except Exception as e:
+                    logger.error(f"[Tool 3] SES send failed: {e}")
+                    status = "Failed"
 
             dispatch_results.append({
                 "email":      email,
