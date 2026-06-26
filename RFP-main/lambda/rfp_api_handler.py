@@ -46,6 +46,10 @@ def handler(event: dict, context: Any) -> dict:
     """Main Lambda handler — routes HTTP method + path to correct function."""
     logger.info(f"Event: {json.dumps(event, default=str)[:500]}")
 
+    # Handle async agent execution (self-invoked)
+    if event.get("action") == "run_agent":
+        return run_agent_async(event)
+
     method  = event.get("requestContext", {}).get("http", {}).get("method", "").upper()
     path    = event.get("rawPath", "/")
 
@@ -89,14 +93,68 @@ def handler(event: dict, context: Any) -> dict:
 
 
 # ============================================================================
+# ASYNC AGENT RUNNER (self-invoked)
+# ============================================================================
+
+def run_agent_async(event: dict) -> dict:
+    """
+    Runs AgentCore asynchronously when self-invoked with action=run_agent.
+    Saves result to DynamoDB when complete.
+    """
+    rfp_id  = event.get("rfp_id", "")
+    message = event.get("message", "")
+    table   = dynamodb.Table(REQUESTS_TABLE)
+    now     = datetime.now(timezone.utc).isoformat()
+
+    try:
+        logger.info(f"[run_agent_async] Starting AgentCore for: {rfp_id}")
+
+        result = invoke_agentcore(message)
+
+        actual_rfp_id = result.get("rfp_id", rfp_id)
+        status        = result.get("status", "error")
+        response_text = result.get("response", "")
+
+        # Update DynamoDB with result
+        table.update_item(
+            Key={"RequestID": rfp_id},
+            UpdateExpression=(
+                "SET #s = :s, agent_rfp_id = :aid, "
+                "agent_response = :r, completed_at = :at"
+            ),
+            ExpressionAttributeNames={"#s": "Status"},
+            ExpressionAttributeValues={
+                ":s":   "complete" if status == "success" else "error",
+                ":aid": actual_rfp_id,
+                ":r":   response_text[:2000],
+                ":at":  now
+            }
+        )
+
+        logger.info(f"[run_agent_async] ✅ Done: {rfp_id} → {status}")
+        return {"status": "done", "rfp_id": rfp_id}
+
+    except Exception as e:
+        logger.error(f"[run_agent_async] Error: {e}", exc_info=True)
+        table.update_item(
+            Key={"RequestID": rfp_id},
+            UpdateExpression="SET #s = :s, error_msg = :e",
+            ExpressionAttributeNames={"#s": "Status"},
+            ExpressionAttributeValues={":s": "error", ":e": str(e)}
+        )
+        return {"status": "error", "error": str(e)}
+
+
+# ============================================================================
 # ROUTE: POST /rfp — Submit RFP + invoke AgentCore
 # ============================================================================
 
 def handle_submit_rfp(event: dict) -> dict:
     """
     Receives message from frontend.
-    Invokes AgentCore Runtime synchronously.
-    Returns rfp_id + full agent response.
+    Saves initial record to DynamoDB immediately.
+    Invokes AgentCore asynchronously via Lambda self-invocation.
+    Returns rfp_id instantly — frontend polls for status.
     """
     try:
         body = parse_body(event)
@@ -105,21 +163,41 @@ def handle_submit_rfp(event: dict) -> dict:
         if not message:
             return cors_response(400, {"error": "message field is required"})
 
-        logger.info(f"[submit_rfp] Invoking AgentCore: {message[:100]}")
+        # Generate RFP ID immediately
+        rfp_id = f"RFP-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{os.urandom(4).hex().upper()}"
+        now = datetime.now(timezone.utc).isoformat()
 
-        # Invoke AgentCore Runtime
-        result = invoke_agentcore(message)
+        logger.info(f"[submit_rfp] Created RFP: {rfp_id}")
 
-        rfp_id   = result.get("rfp_id", "")
-        response = result.get("response", "")
-        status   = result.get("status", "error")
+        # Save initial record to DynamoDB
+        table = dynamodb.Table(REQUESTS_TABLE)
+        table.put_item(Item={
+            "RequestID":   rfp_id,
+            "Status":      "processing",
+            "Requirement": message,
+            "CreatedAt":   now,
+        })
 
-        logger.info(f"[submit_rfp] ✅ RFP: {rfp_id}")
+        # Invoke AgentCore asynchronously via Lambda self-invocation
+        lambda_client = boto3.client("lambda", region_name=REGION)
+        async_payload = json.dumps({
+            "action":  "run_agent",
+            "rfp_id":  rfp_id,
+            "message": message
+        })
+
+        lambda_client.invoke(
+            FunctionName=os.environ.get("AWS_LAMBDA_FUNCTION_NAME", "rfp-api-handler"),
+            InvocationType="Event",  # Async — fire and forget
+            Payload=async_payload.encode()
+        )
+
+        logger.info(f"[submit_rfp] ✅ Async agent triggered for: {rfp_id}")
 
         return cors_response(200, {
-            "rfp_id":   rfp_id,
-            "status":   status,
-            "response": response
+            "rfp_id": rfp_id,
+            "status": "processing",
+            "message": "RFP submitted. Poll GET /rfp/{id} for status."
         })
 
     except Exception as e:
