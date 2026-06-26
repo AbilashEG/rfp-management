@@ -1,0 +1,5 @@
+{
+  "/rfps/page": "app/rfps/page.js",
+  "/suppliers/page": "app/suppliers/page.js",
+  "/page": "app/page.js"
+}

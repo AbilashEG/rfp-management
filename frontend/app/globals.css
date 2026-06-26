@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #EDE8DC;
+  --surface: #F5F1E8;
+  --surface-elevated: #FAF8F4;
+  --border: rgba(180, 163, 140, 0.35);
+  --text: #2C2C2C;
+  --muted: #7A7265;
+  --orange: #E8A020;
+  --orange-hover: #C97B1A;
+  --success: #5C8A4A;
+  --danger: #A63D2F;
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html, body {
+  background-color: #EDE8DC;
+  color: #2C2C2C;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #EDE8DC; }
+::-webkit-scrollbar-thumb { background: #D4CBB8; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #C4B89E; }
+
+/* Focus */
+*:focus-visible {
+  outline: 2px solid #E8A020;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Smooth page transitions */
+.page-enter {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 400ms ease, transform 400ms ease;
+}
+
+/* Score ring animation */
+@keyframes ring-fill {
+  from { stroke-dashoffset: 283; }
+}
+
+/* Shimmer for loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #EDE8DC 25%, #F5F1E8 50%, #EDE8DC 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
