@@ -49,6 +49,14 @@ def handler(event: dict, context: Any) -> dict:
     method  = event.get("requestContext", {}).get("http", {}).get("method", "").upper()
     path    = event.get("rawPath", "/")
 
+    # Strip stage prefix if present (e.g. /prod/rfp → /rfp)
+    for prefix in ["/prod", "/dev", "/staging"]:
+        if path.startswith(prefix):
+            path = path[len(prefix):]
+            break
+    if not path:
+        path = "/"
+
     try:
         # POST /rfp
         if method == "POST" and path == "/rfp":
