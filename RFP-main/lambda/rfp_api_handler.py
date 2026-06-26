@@ -115,19 +115,25 @@ def run_agent_async(event: dict) -> dict:
         status        = result.get("status", "error")
         response_text = result.get("response", "")
 
-        # Update DynamoDB with result using correct key name
+        # Extract recommendation docx URL from agent response before truncating
+        rec_url = _extract_url_from_response(response_text)
+        logger.info(f"[run_agent_async] Extracted rec URL: {rec_url[:80] if rec_url else 'None'}")
+
+        # Update DynamoDB with result
         table.update_item(
             Key={"rfp_id": rfp_id},
             UpdateExpression=(
                 "SET #s = :s, agent_rfp_id = :aid, "
-                "agent_response = :r, completed_at = :at"
+                "agent_response = :r, completed_at = :at, "
+                "rec_docx_url = :rurl"
             ),
             ExpressionAttributeNames={"#s": "Status"},
             ExpressionAttributeValues={
-                ":s":   "complete" if status == "success" else "error",
-                ":aid": actual_rfp_id,
-                ":r":   response_text[:2000],
-                ":at":  now
+                ":s":    "complete" if status == "success" else "error",
+                ":aid":  actual_rfp_id,
+                ":r":    response_text[:3000],
+                ":at":   now,
+                ":rurl": rec_url or ""
             }
         )
 
@@ -143,6 +149,20 @@ def run_agent_async(event: dict) -> dict:
             ExpressionAttributeValues={":s": "error", ":e": str(e)}
         )
         return {"status": "error", "error": str(e)}
+
+
+def _extract_url_from_response(response: str) -> str:
+    """Extract presigned S3 URL from agent response text."""
+    import re
+    # Pattern: [here](https://...)
+    match = re.search(r'\[here\]\((https://[^\)]+\.docx[^\)]*)\)', response)
+    if match:
+        return match.group(1)
+    # Pattern: plain URL
+    match = re.search(r'(https://[^\s]+recommendation[^\s]+\.docx[^\s]*)', response)
+    if match:
+        return match.group(1)
+    return ""
 
 
 # ============================================================================
@@ -231,6 +251,8 @@ def handle_get_rfp(rfp_id: str) -> dict:
             "awarded_supplier":    item.get("awarded_supplier", None),
             "awarded_at":          item.get("awarded_at", None),
             "agent_response":      item.get("agent_response", ""),
+            "agent_rfp_id":        item.get("agent_rfp_id", ""),
+            "rec_docx_url":        item.get("rec_docx_url", ""),
             "docx_presigned_url":  item.get("DocxPresignedUrl", item.get("docx_presigned_url", "")),
             "created_at":          item.get("CreatedAt", item.get("created_at", "")),
         })
@@ -309,15 +331,28 @@ def handle_approve_rfp(rfp_id: str, event: dict) -> dict:
 def handle_get_docs(rfp_id: str) -> dict:
     """
     Generates fresh presigned S3 URLs for .docx files.
-    URLs are valid for 7 days.
+    Uses agent_rfp_id from DynamoDB since files are saved with agent's ID.
     """
     try:
         logger.info(f"[get_docs] Generating presigned URLs for: {rfp_id}")
 
-        rfp_key  = f"rfp-documents/{rfp_id}.docx"
-        rec_key  = f"recommendations/{rfp_id}-recommendation.docx"
+        # Look up agent_rfp_id from DynamoDB
+        table = dynamodb.Table(REQUESTS_TABLE)
+        result = table.get_item(Key={"rfp_id": rfp_id})
+        item = result.get("Item", {})
+        agent_rfp_id = item.get("agent_rfp_id", rfp_id)
+        stored_rec_url = item.get("rec_docx_url", "")
+
+        logger.info(f"[get_docs] Using agent_rfp_id: {agent_rfp_id}")
+
+        rfp_key = f"rfp-documents/{agent_rfp_id}.docx"
+        rec_key = f"recommendations/{agent_rfp_id}-recommendation.docx"
 
         urls = {}
+
+        # Return stored rec URL if available
+        if stored_rec_url:
+            urls["report_docx_url"] = stored_rec_url
 
         # RFP document
         try:
@@ -327,24 +362,24 @@ def handle_get_docs(rfp_id: str) -> dict:
                 Params={"Bucket": RFP_DOCS_BUCKET, "Key": rfp_key},
                 ExpiresIn=604800
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[get_docs] RFP doc not found: {e}")
             urls["rfp_docx_url"] = None
 
-        # Recommendation report
-        try:
-            s3.head_object(Bucket=RFP_DOCS_BUCKET, Key=rec_key)
-            urls["report_docx_url"] = s3.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": RFP_DOCS_BUCKET, "Key": rec_key},
-                ExpiresIn=604800
-            )
-        except Exception:
-            urls["report_docx_url"] = None
+        # Recommendation report (fresh presigned URL)
+        if not stored_rec_url:
+            try:
+                s3.head_object(Bucket=RFP_DOCS_BUCKET, Key=rec_key)
+                urls["report_docx_url"] = s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": RFP_DOCS_BUCKET, "Key": rec_key},
+                    ExpiresIn=604800
+                )
+            except Exception as e:
+                logger.warning(f"[get_docs] Rec doc not found: {e}")
+                urls["report_docx_url"] = None
 
-        return cors_response(200, {
-            "rfp_id": rfp_id,
-            **urls
-        })
+        return cors_response(200, {"rfp_id": rfp_id, **urls})
 
     except Exception as e:
         logger.error(f"[get_docs] Error: {e}", exc_info=True)

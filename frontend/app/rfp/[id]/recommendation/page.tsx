@@ -100,24 +100,20 @@ export default function RecommendationPage() {
         const json = await res.json()
         setData(json)
 
-        // Use agent_rfp_id for doc fetching (files are saved with agent's ID)
-        const docRfpId = json.agent_rfp_id || rfpId
-
-        // First try to extract URL directly from agent response
-        if (json.agent_response) {
-          const extractedUrl = extractDocUrl(json.agent_response)
-          if (extractedUrl) {
-            setDocs({ report_docx_url: extractedUrl })
-          }
+        // Use rec_docx_url stored directly in DynamoDB (most reliable)
+        if (json.rec_docx_url) {
+          setDocs({ report_docx_url: json.rec_docx_url })
         }
 
-        // Also fetch from docs API
+        // Use agent_rfp_id for S3 doc fetching
+        const docRfpId = json.agent_rfp_id || rfpId
         try {
           const docRes = await fetch(`${API_URL}/rfp/${docRfpId}/docs`)
           const docJson = await docRes.json()
-          if (docJson.rfp_docx_url || docJson.report_docx_url) {
-            setDocs(prev => ({ ...prev, ...docJson }))
-          }
+          setDocs(prev => ({
+            report_docx_url: prev.report_docx_url || docJson.report_docx_url,
+            rfp_docx_url: docJson.rfp_docx_url,
+          }))
         } catch {}
 
       } catch (err) {
