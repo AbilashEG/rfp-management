@@ -398,8 +398,11 @@ def invoke_agentcore(message: str) -> dict:
     boto3 handles binary serialization — do NOT base64 encode manually.
     """
     try:
-        # Pass payload as raw bytes — boto3 handles encoding internally
-        payload_bytes = json.dumps({"message": message}).encode("utf-8")
+        # Pass rfp_id in payload so agent uses it — no duplicate IDs
+        payload_bytes = json.dumps({
+            "message": message,
+            "rfp_id": rfp_id
+        }).encode("utf-8")
 
         logger.info(f"[agentcore] Invoking runtime: {AGENT_RUNTIME_ARN}")
 

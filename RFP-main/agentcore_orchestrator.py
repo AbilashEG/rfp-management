@@ -215,7 +215,7 @@ def recommendation(rfp_id: str, scored_proposals: list) -> str:
 # AGENT RUNNER
 # ============================================================================
 
-def run_rfp_agent(message: str) -> dict:
+def run_rfp_agent(message: str, frontend_rfp_id: str = "") -> dict:
     """Run the RFP Strands Agent with all 6 Lambda tools."""
     try:
         logger.info("Initializing BedrockModel...")
@@ -243,8 +243,8 @@ def run_rfp_agent(message: str) -> dict:
         )
         logger.info("✓ Strands Agent initialized")
 
-        # Generate RFP ID and inject into message
-        rfp_id = f"RFP-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
+        # Use frontend rfp_id if provided — avoids duplicate IDs in dashboard vs document
+        rfp_id = frontend_rfp_id if frontend_rfp_id else f"RFP-{datetime.now().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8].upper()}"
         full_message = f"RFP ID: {rfp_id}\n\n{message}"
 
         logger.info(f"Running agent for RFP: {rfp_id}")
@@ -303,6 +303,7 @@ class RFPAgentHandler(BaseHTTPRequestHandler):
 
             # Support both "message" and "prompt" fields
             message = data.get("message") or data.get("prompt") or data.get("input") or ""
+            frontend_rfp_id = data.get("rfp_id", "")
 
             if not message:
                 resp = json.dumps({"error": "message field required"}).encode()
@@ -314,7 +315,7 @@ class RFPAgentHandler(BaseHTTPRequestHandler):
                 return
 
             logger.info(f"Received request: {message[:120]}")
-            result = run_rfp_agent(message)
+            result = run_rfp_agent(message, frontend_rfp_id)
 
             resp = json.dumps(result).encode()
             self.send_response(200)
