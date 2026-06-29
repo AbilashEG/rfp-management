@@ -156,6 +156,7 @@ export default function RecommendationPage() {
     : { suppliers: [], approval_required: false }
 
   const cleanSummary = cleanResponse(data?.agent_response || '')
+  const hasContent = cleanSummary.length > 20
 
   const SCORE_BARS = (scores: Record<string, number>) => [
     { label: 'Price', weight: '30%', value: scores.price, delay: 0 },
@@ -272,9 +273,16 @@ export default function RecommendationPage() {
             {suppliers.length === 0 ? (
               <div className="bg-[#F5F1E8] border border-[#D4CBB8]/50 rounded-xl p-5">
                 <p className="text-xs tracking-[0.15em] uppercase text-[#7A7265] mb-3">AI Summary</p>
-                <p className="text-sm text-[#2C2C2C] leading-relaxed whitespace-pre-wrap">
-                  {cleanSummary}
-                </p>
+                {hasContent ? (
+                  <p className="text-sm text-[#2C2C2C] leading-relaxed whitespace-pre-wrap">
+                    {cleanSummary}
+                  </p>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm text-[#7A7265]">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#E8A020]" />
+                    Loading recommendation data...
+                  </div>
+                )}
               </div>
             ) : (
               suppliers.map((supplier, i) => (

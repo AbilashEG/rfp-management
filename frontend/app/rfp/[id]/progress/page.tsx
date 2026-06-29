@@ -45,28 +45,26 @@ export default function ProgressPage() {
   const stepTimerRef = useRef<NodeJS.Timeout[]>([])
   const completedRef = useRef(false)
 
-  // Simulate visual step progression
+  // Show steps as active one by one — never mark complete until API confirms
   useEffect(() => {
     let current = 0
     const advance = () => {
       if (completedRef.current) return
       setSteps(prev => {
         const next = [...prev]
-        if (current > 0 && current <= next.length) {
-          next[current - 1] = { ...next[current - 1], status: 'complete', timestamp: getTimestamp() }
+        // Set previous active to pending again (don't mark complete yet)
+        if (current > 0) {
+          next[current - 1] = { ...next[current - 1], status: 'pending' }
         }
         if (current < next.length) {
           next[current] = { ...next[current], status: 'active' }
-          if (current === 0) {
-            setTimeout(() => setSuppliers(['SUP005', 'SUP003', 'SUP007']), 500)
-          }
+          current++
         }
-        current++
         return next
       })
     }
 
-    const delays = [500, 8000, 16000, 24000, 35000, 48000]
+    const delays = [500, 12000, 22000, 35000, 50000, 65000]
     stepTimerRef.current = delays.map((d) => setTimeout(advance, d))
     return () => stepTimerRef.current.forEach(clearTimeout)
   }, [])
@@ -81,16 +79,21 @@ export default function ProgressPage() {
         if (data.status === 'complete' || data.status === 'error') {
           if (!completedRef.current) {
             completedRef.current = true
-
-            // Mark all steps complete immediately
             setSteps(prev => prev.map(s => ({
               ...s,
               status: 'complete' as StepStatus,
               timestamp: s.timestamp || getTimestamp()
             })))
             setAgentResponse(data.agent_response || '')
-            setComplete(true)
 
+            // Extract real supplier IDs from agent response
+            const supMatches = (data.agent_response || '').match(/SUP\d+/g)
+            if (supMatches) {
+              const unique = [...new Set(supMatches)] as string[]
+              setSuppliers(unique.slice(0, 5))
+            }
+
+            setComplete(true)
             if (pollRef.current) clearInterval(pollRef.current)
           }
         }

@@ -62,6 +62,13 @@ def handler(event, context):
                 "timestamp": datetime.utcnow().isoformat()
             })
 
+        # Sort by total_score descending — highest score = Rank 1
+        scored_proposals = sorted(
+            scored_proposals,
+            key=lambda x: float(x.get("total_score", 0)),
+            reverse=True
+        )
+
         # Top 2
         top_2 = scored_proposals[:2]
         recommendations: List[Dict[str, Any]] = []
