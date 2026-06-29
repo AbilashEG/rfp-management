@@ -184,7 +184,10 @@ def scoring(rfp_id: str, proposals: list) -> str:
         "proposals": proposals
     })
     # Return the scored list directly for recommendation
-    return json.dumps(result.get("scored", result))
+    scored = result.get("scored", [])
+    if not scored and isinstance(result, list):
+        scored = result
+    return json.dumps(scored)
 
 @tool
 def recommendation(rfp_id: str, scored_proposals: list) -> str:
@@ -192,19 +195,19 @@ def recommendation(rfp_id: str, scored_proposals: list) -> str:
     
     Args:
         rfp_id: The RFP identifier
-        scored_proposals: List of scored proposals with supplier_id, total_score, risk_flags
+        scored_proposals: List of scored proposals with supplier_id, total_score, flags
     
     Returns:
-        JSON string with top2, approval_required, report_url
+        JSON string with top_2, approval_required, rec_docx_url
     """
     result = invoke_lambda(LAMBDA_FUNCTIONS["recommendation"], {
         "rfp_id": rfp_id,
         "scored_proposals": scored_proposals
     })
     return json.dumps({
-        "top2":              result.get("recommendations", []),
-        "approval_required": result.get("approval_required", True),
-        "report_url":        result.get("recommendation_docx_url", "")
+        "top_2":             result.get("top_2", result.get("recommendations", [])),
+        "approval_required": result.get("approval_required", False),
+        "rec_docx_url":      result.get("rec_docx_url", result.get("recommendation_docx_url", ""))
     })
 
 
