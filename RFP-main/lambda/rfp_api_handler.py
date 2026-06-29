@@ -109,7 +109,7 @@ def run_agent_async(event: dict) -> dict:
     try:
         logger.info(f"[run_agent_async] Starting AgentCore for: {rfp_id}")
 
-        result = invoke_agentcore(message)
+        result = invoke_agentcore(message, rfp_id)
 
         actual_rfp_id = result.get("rfp_id", rfp_id)
         status        = result.get("status", "error")
@@ -392,7 +392,7 @@ def handle_get_docs(rfp_id: str) -> dict:
 # AGENTCORE INVOCATION
 # ============================================================================
 
-def invoke_agentcore(message: str) -> dict:
+def invoke_agentcore(message: str, rfp_id: str = "") -> dict:
     """
     Invokes AgentCore Runtime with the user message.
     boto3 handles binary serialization — do NOT base64 encode manually.
