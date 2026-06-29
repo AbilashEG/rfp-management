@@ -106,7 +106,7 @@ export default function HomePage() {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="e.g. We need 500 brake sensors by September 2026. Specs: ABS wheel speed sensor, IP67 rated, CAN bus output."
+              placeholder="Describe your procurement requirement..."
               rows={4}
               className="w-full bg-white border border-[#D4CBB8]/60 rounded-xl px-4 py-3 text-sm text-[#2C2C2C] placeholder-[#C4B89E] resize-none focus:outline-none focus:border-[#E8A020]/60 focus:ring-1 focus:ring-[#E8A020]/30 transition-all duration-200 leading-relaxed"
             />

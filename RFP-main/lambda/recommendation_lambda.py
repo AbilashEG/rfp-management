@@ -146,6 +146,36 @@ def handler(event, context):
             "rec_docx_url":      rec_url
         }
 
+        # Save structured top_2 to DynamoDB for frontend to read directly
+        try:
+            requests_table = dynamodb.Table(REQUESTS_TABLE)
+            requests_table.update_item(
+                Key={"rfp_id": rfp_id},
+                UpdateExpression="SET top_2_suppliers = :t, approval_required = :a",
+                ExpressionAttributeValues={
+                    ":t": json.dumps([
+                        {
+                            "rank":         rec["rank"],
+                            "supplier_id":  rec["supplier_id"],
+                            "supplier_name": rec["supplier_name"],
+                            "total_score":  str(rec["total_score"]),
+                            "flags":        rec["flags"],
+                            "scores": {
+                                "price":      str(rec.get("price_score", 0)),
+                                "quality":    str(rec.get("quality_score", 0)),
+                                "delivery":   str(rec.get("delivery_score", 0)),
+                                "compliance": str(rec.get("compliance_score", 0))
+                            }
+                        }
+                        for rec in recommendations
+                    ]),
+                    ":a": approval_required
+                }
+            )
+            logger.info(f"[Tool 6] 💾 Saved top_2 to DynamoDB")
+        except Exception as e:
+            logger.warning(f"[Tool 6] ⚠️ Could not save top_2 to DynamoDB: {e}")
+
         logger.info(
             f"[Tool 6] ✅ {len(recommendations)} recommendations | "
             f"approval_required={approval_required}"

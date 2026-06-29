@@ -253,6 +253,8 @@ def handle_get_rfp(rfp_id: str) -> dict:
             "agent_response":      item.get("agent_response", ""),
             "agent_rfp_id":        item.get("agent_rfp_id", ""),
             "rec_docx_url":        item.get("rec_docx_url", ""),
+            "top_2_suppliers":     item.get("top_2_suppliers", "[]"),
+            "approval_required":   item.get("approval_required", False),
             "docx_presigned_url":  item.get("DocxPresignedUrl", item.get("docx_presigned_url", "")),
             "created_at":          item.get("CreatedAt", item.get("created_at", "")),
         })

@@ -86,11 +86,21 @@ export default function ProgressPage() {
             })))
             setAgentResponse(data.agent_response || '')
 
-            // Extract real supplier IDs from agent response
+            // Extract real supplier IDs from structured data or agent response
             const supMatches = (data.agent_response || '').match(/SUP\d+/g)
             if (supMatches) {
               const unique = [...new Set(supMatches)] as string[]
               setSuppliers(unique.slice(0, 5))
+            }
+            // Also check top_2_suppliers
+            if (data.top_2_suppliers) {
+              try {
+                const t2 = typeof data.top_2_suppliers === 'string'
+                  ? JSON.parse(data.top_2_suppliers) : data.top_2_suppliers
+                if (Array.isArray(t2) && t2.length > 0) {
+                  setSuppliers(t2.map((s: any) => s.supplier_id))
+                }
+              } catch {}
             }
 
             setComplete(true)

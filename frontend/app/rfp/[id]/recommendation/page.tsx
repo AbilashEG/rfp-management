@@ -151,9 +151,39 @@ export default function RecommendationPage() {
     )
   }
 
-  const { suppliers, approval_required } = data?.agent_response
-    ? parseSuppliers(data.agent_response)
-    : { suppliers: [], approval_required: false }
+  const { suppliers, approval_required } = (() => {
+    // Use structured top_2_suppliers from DynamoDB — no AI text parsing
+    try {
+      const raw = data?.top_2_suppliers
+      if (raw) {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const suppliers: Supplier[] = parsed.map((s: any) => ({
+            rank: s.rank,
+            supplier_id: s.supplier_id,
+            supplier_name: s.supplier_name || s.supplier_id,
+            total_score: parseFloat(s.total_score),
+            flags: s.flags || [],
+            scores: {
+              price:      parseFloat(s.scores?.price || 65),
+              quality:    parseFloat(s.scores?.quality || 70),
+              delivery:   parseFloat(s.scores?.delivery || 75),
+              compliance: parseFloat(s.scores?.compliance || 90),
+            }
+          }))
+          return {
+            suppliers,
+            approval_required: data?.approval_required || false
+          }
+        }
+      }
+    } catch {}
+    // Fallback to text parsing if structured data not available
+    if (data?.agent_response) {
+      return parseSuppliers(data.agent_response)
+    }
+    return { suppliers: [], approval_required: false }
+  })()
 
   const cleanSummary = cleanResponse(data?.agent_response || '')
   const hasContent = cleanSummary.length > 20
