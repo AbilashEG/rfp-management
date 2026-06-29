@@ -76,9 +76,10 @@ def handler(event, context):
             "count": len(suppliers),
             "suppliers": [
                 {
-                    "supplier_id": s["supplier_id"],
-                    "name": s["name"],
-                    "rating": s["rating"]
+                    "supplier_id":    s["supplier_id"],
+                    "name":           s["name"],
+                    "rating":         s["rating"],
+                    "contact_email":  s["contact_email"]
                 }
                 for s in suppliers
             ]
